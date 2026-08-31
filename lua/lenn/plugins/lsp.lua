@@ -20,6 +20,8 @@ return {
 			require("mason-lspconfig").setup({
 				ensure_installed = {
 					"lua_ls",
+          "ts_ls",
+          "eslint"
 				},
 				automatic_installation = true,
 			})
@@ -37,7 +39,7 @@ return {
 				},
 			})
 
-			vim.lsp.enable("lua_ls")
+			vim.lsp.enable({"lua_ls", "ts_ls", "eslint"})
 		end,
 	},
 }
