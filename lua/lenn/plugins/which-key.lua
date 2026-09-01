@@ -23,8 +23,8 @@ return {
         { "<leader>h", group = "Git Hunk" },
         { "<leader>g", group = "NeoGit" },
         { "<leader>l", group = "LSP" },
-        { "<leader>u", group = " Utils" }
-      },
+        { "<leader>d", group = "Diagnosticos" },
+
     },
     keys = {
       {
