@@ -32,7 +32,7 @@ return {
       notifier = {
         enabled = true,
         timeout = 3000,
-        style = "compact", -- "compact", "fancy",  "minimal"
+        style = "minimal", -- "compact", "fancy",  "minimal"
         position = "bottom_right",
         top_down = false,
       },

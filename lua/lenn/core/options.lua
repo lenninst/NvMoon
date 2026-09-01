@@ -18,7 +18,12 @@ opt.clipboard = "unnamedplus"
 opt.fillchars = { eob = " " }
 opt.foldlevel = 99
 opt.foldlevelstart = 99
-opt.cmdheight = 12
+-- opt.cmdheight = 1
+vim.api.nvim_create_autocmd("VimEnter", {
+  callback = function()
+    vim.o.cmdheight = 1
+  end,
+})
 
 vim.g.loaded_netrw = 1
 vim.g.loaded_netrwPlugin = 1
@@ -56,4 +61,10 @@ vim.api.nvim_create_autocmd("TextYankPost", {
   callback = function()
     vim.highlight.on_yank({ higroup = "YankHighlight", timeout = 240 })
   end,
+})
+
+vim.filetype.add({
+  extension = {
+    axaml = "xml",
+  },
 })
