@@ -22,7 +22,7 @@ return {
         { "<leader>f", group = "Find" },
         { "<leader>h", group = "Git Hunk" },
         { "<leader>l", group = "LSP" },
-        { "<leader>u", group = " Utils" }
+        { "<leader>u", group = " Utils" }
       },
     },
     keys = {
