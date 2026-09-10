@@ -46,3 +46,51 @@ map("i", "<A-Right>", "<C-\\><C-N><C-w>l", opts)
 -- Mejor indentado (se mantiene la selección visual)
 map("v", "<", "<gv", opts)
 map("v", ">", ">gv", opts)
+
+-- Space + L
+map("n", "<leader>la", vim.lsp.buf.code_action, {
+  desc = "LSP: Code Action",
+})
+
+map("n", "<leader>ld", vim.diagnostic.setloclist, {
+  desc = "LSP: Buffer Diagnostics",
+})
+
+map("n", "<leader>lf", function()
+  vim.lsp.buf.format({ async = true })
+end, {
+  desc = "LSP: Format",
+})
+
+map("n", "<leader>li", vim.lsp.buf.hover, {
+  desc = "LSP: Info",
+})
+
+map("n", "<leader>lj", vim.diagnostic.goto_next, {
+  desc = "LSP: Next Diagnostic",
+})
+
+map("n", "<leader>lk", vim.diagnostic.goto_prev, {
+  desc = "LSP: Prev Diagnostic",
+})
+
+map("n", "<leader>ll", vim.lsp.codelens.run, {
+  desc = "LSP: CodeLens Action",
+})
+
+map("n", "<leader>lq", vim.diagnostic.setqflist, {
+  desc = "LSP: Quickfix",
+})
+
+
+map("n", "<leader>ls", vim.lsp.buf.workspace_symbol, {
+  desc = "LSP: Workspace Symbols",
+})
+
+map("n", "<leader>lS", vim.lsp.buf.document_symbol, {
+  desc = "LSP: Document Symbols",
+})
+
+map("n", "<leader>lw", vim.diagnostic.setqflist, {
+  desc = "LSP: Diagnostics",
+})

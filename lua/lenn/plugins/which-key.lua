@@ -2,6 +2,15 @@ return {
   {
     "folke/which-key.nvim",
     event = "VeryLazy",
+    keys = {
+      {
+        "<leader>?",
+        function()
+          require("which-key").show({ global = false })
+        end,
+        desc = "Buffer local keymaps",
+      },
+    },
     opts = {
       preset = "modern",
       delay = 300,
@@ -22,18 +31,12 @@ return {
         { "<leader>f", group = "Find" },
         { "<leader>h", group = "Git Hunk" },
         { "<leader>g", group = "NeoGit" },
+        { "<leader>c", group = "Code actions" },
         { "<leader>l", group = "LSP" },
         { "<leader>d", group = "Diagnosticos" },
+        { "<leader>b", group = "Buffers" },
 
-    },
-    keys = {
-      {
-        "<leader>?",
-        function()
-          require("which-key").show({ global = false })
-        end,
-        desc = "Buffer local keymaps",
       },
     },
-  },
+  }
 }

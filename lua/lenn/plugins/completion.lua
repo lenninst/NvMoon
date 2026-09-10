@@ -4,7 +4,22 @@ return {
     version = "1.*",
     dependencies = { "rafamadriz/friendly-snippets" },
     opts = {
-      keymap = { preset = "super-tab" },
+      keymap = {
+        ["<Tab>"] = {
+          "select_next",
+          "fallback",
+        },
+
+        ["<S-Tab>"] = {
+          "select_prev",
+          "fallback",
+        },
+
+        ["<CR>"] = {
+          "accept",
+          "fallback",
+        },
+      },
       appearance = {
         nerd_font_variant = "mono",
       },

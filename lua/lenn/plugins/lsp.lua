@@ -22,7 +22,9 @@ return {
           "lua_ls",
           "ts_ls",
           "eslint",
-          "lemminx"
+          "lemminx",
+          "basedpyright",
+          "ruff"
         },
         automatic_installation = true,
       })
@@ -92,5 +94,9 @@ return {
       })
     end,
   },
-
+  {
+    "mrcjkb/rustaceanvim",
+    version = "^9",
+    lazy = false,
+  },
 }
