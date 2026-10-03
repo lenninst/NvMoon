@@ -14,10 +14,15 @@ opt.wrap = false
 opt.signcolumn = "yes"
 opt.termguicolors = true
 opt.scrolloff = 8
+opt.mouse = "a"
 opt.clipboard = "unnamedplus"
 opt.fillchars = { eob = " " }
 opt.foldlevel = 99
 opt.foldlevelstart = 99
+
+
+-- vim.keymap.set("v", "<LeftRelease>", '"+ygv"', { silent = true })
+vim.keymap.set("v", "<LeftRelease>", '"+y<LeftRelease>', { silent = true })
 -- opt.cmdheight = 1
 vim.api.nvim_create_autocmd("VimEnter", {
   callback = function()
