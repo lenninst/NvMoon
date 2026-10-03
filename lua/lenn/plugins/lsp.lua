@@ -24,9 +24,8 @@ return {
           "eslint",
           "lemminx",
           "basedpyright",
-          "ruff"
+          "ruff",
         },
-        automatic_installation = true,
       })
     end,
   },

@@ -32,6 +32,17 @@ return {
             icon = "▎",
             style = "icon",
           },
+          custom_filter = function(bufnr)
+            local buf = vim.bo[bufnr]
+            if not buf.buflisted or buf.buftype ~= "" then
+              return false
+            end
+            local name = vim.api.nvim_buf_get_name(bufnr)
+            local pristine = not buf.modified
+              and vim.api.nvim_buf_line_count(bufnr) == 1
+              and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == ""
+            return not (name == "" and pristine)
+          end,
           buffer_close_icon = "",
           modified_icon = "●",
           close_icon = "",
