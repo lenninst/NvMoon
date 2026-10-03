@@ -8,9 +8,9 @@ return {
     end,
     keys = {
       {
-        "<leader>dpr",
+        "<leader>dp",
         function() require("dap-python").test_method() end,
-        desc = "Debug Python test method",
+        desc = "Debug: run python test method",
       },
     },
   },

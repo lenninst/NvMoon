@@ -6,12 +6,12 @@ return {
       { "folke/snacks.nvim", optional = true },
     },
     keys = {
-      { "<leader>a",  function() require("opencode").ask("@this: ") end,  desc = "Opencode: Ask" },
-      { "<leader>ao", function() require("opencode").ask("") end,        desc = "Opencode: Ask (sin contexto)" },
-      { "<leader>am", function() require("opencode").prompt("Select model") end, desc = "Opencode: Select Model" },
-      { "<leader>aa", function() require("opencode").prompt("Select agent") end, desc = "Opencode: Select Agent" },
-      { "<leader>an", function() require("opencode").prompt("@") end,      desc = "Opencode: Add Context" },
-      { "<leader>as", function() require("opencode").select() end,         desc = "Opencode: Select" },
+      { "<leader>a",  function() require("opencode").ask("@this: ") end,   desc = "AI: ask with context" },
+      { "<leader>ao", function() require("opencode").ask("") end,         desc = "AI: ask without context" },
+      { "<leader>am", function() require("opencode").prompt("Select model") end, desc = "AI: select model" },
+      { "<leader>aa", function() require("opencode").prompt("Select agent") end, desc = "AI: select agent" },
+      { "<leader>an", function() require("opencode").prompt("@") end,      desc = "AI: add context" },
+      { "<leader>as", function() require("opencode").select() end,         desc = "AI: select" },
     },
   },
 }

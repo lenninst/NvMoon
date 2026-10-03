@@ -10,6 +10,12 @@ return {
     "DistantDisconnect",
     "DistantShell",
   },
+  keys = {
+    { "<leader>rm", "<cmd>DistantConnect ssh://<cr>", desc = "Remote: connect over SSH" },
+    { "<leader>ro", "<cmd>DistantOpen<cr>", desc = "Remote: open remote path" },
+    { "<leader>rd", "<cmd>DistantDisconnect<cr>", desc = "Remote: disconnect" },
+    { "<leader>rs", "<cmd>DistantShell<cr>", desc = "Remote: open shell" },
+  },
   config = function()
     require("distant"):setup({
       manager = {
@@ -23,10 +29,5 @@ return {
         },
       },
     })
-
-    vim.keymap.set("n", "<leader>dc", ":DistantConnect ssh://", { desc = "Distant: Connect SSH" })
-    vim.keymap.set("n", "<leader>do", ":DistantOpen ", { desc = "Distant: Open remote path" })
-    vim.keymap.set("n", "<leader>dd", "<cmd>DistantDisconnect<cr>", { desc = "Distant: Disconnect" })
-    vim.keymap.set("n", "<leader>ds", "<cmd>DistantShell<cr>", { desc = "Distant: Remote shell" })
   end,
 }

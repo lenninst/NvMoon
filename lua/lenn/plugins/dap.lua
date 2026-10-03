@@ -10,34 +10,44 @@ return {
     },
     keys = {
       {
+        "<leader>dr",
+        function() require("dap").continue() end,
+        desc = "Debug: run / continue",
+      },
+      {
+        "<leader>ds",
+        function() require("dap").step_over() end,
+        desc = "Debug: step over",
+      },
+      {
+        "<leader>di",
+        function() require("dap").step_into() end,
+        desc = "Debug: step into",
+      },
+      {
+        "<leader>do",
+        function() require("dap").step_out() end,
+        desc = "Debug: step out",
+      },
+      {
+        "<leader>dt",
+        function() require("dap").terminate() end,
+        desc = "Debug: terminate",
+      },
+      {
         "<F5>",
         function() require("dap").continue() end,
-        desc = "Debug: Start/Continue",
-      },
-      {
-        "<F1>",
-        function() require("dap").step_into() end,
-        desc = "Debug: Step Into",
-      },
-      {
-        "<F2>",
-        function() require("dap").step_over() end,
-        desc = "Debug: Step Over",
-      },
-      {
-        "<F3>",
-        function() require("dap").step_out() end,
-        desc = "Debug: Step Out",
+        desc = "Debug: run / continue",
       },
       {
         "<leader>db",
         function() require("dap").toggle_breakpoint() end,
-        desc = "Debug: Toggle Breakpoint",
+        desc = "Debug: toggle breakpoint",
       },
       {
         "<leader>dv",
         function() require("dap-view").toggle() end,
-        desc = "Debug: Toggle View",
+        desc = "Debug: toggle view",
       },
     },
     config = function()

@@ -21,7 +21,7 @@ return {
             return { buffer = bufnr, desc = desc }
           end
 
-          -- Navegación entre hunks
+          -- hunk navigation
           map("n", "]c", function()
             if vim.wo.diff then return "]c" end
             vim.schedule(function() gs.next_hunk() end)
@@ -32,15 +32,18 @@ return {
             if vim.wo.diff then return "[c" end
             vim.schedule(function() gs.prev_hunk() end)
             return "<Ignore>"
-          end, { expr = true, buffer = bufnr, desc = "Prev hunk" })
+          end, { expr = true, buffer = bufnr, desc = "Previous hunk" })
 
-          -- Acciones
+          -- actions
           map("n", "<leader>hs", gs.stage_hunk, opts("Stage hunk"))
           map("n", "<leader>hr", gs.reset_hunk, opts("Reset hunk"))
+          map("n", "<leader>hu", gs.undo_stage_hunk, opts("Undo stage hunk"))
           map("n", "<leader>hp", gs.preview_hunk, opts("Preview hunk"))
-          map("n", "<leader>hb", function() gs.blame_line({ full = true }) end, opts("Blame line"))
-          map("n", "<leader>tb", gs.toggle_current_line_blame, opts("Toggle blame"))
-          map("n", "<leader>hd", gs.diffthis, opts("Diff this"))
+          map("n", "<leader>hb", function()
+            gs.blame_line({ full = true })
+          end, opts("Blame line"))
+          map("n", "<leader>hB", gs.toggle_current_line_blame, opts("Toggle line blame"))
+          map("n", "<leader>hd", gs.diffthis, opts("Diff this file"))
         end,
       })
     end,

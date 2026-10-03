@@ -23,10 +23,9 @@ return {
       auto_load = false,
     },
     keys = {
-      { "<leader>p",  "<cmd>NeovimProjectDiscover<cr>", desc = "Projects (recent)" },
-      { "<leader>o",  "<cmd>NeovimProjectDiscover<cr>", desc = "Open project (Zed-like)" },
-      { "<leader>fp", "<cmd>NeovimProjectDiscover<cr>", desc = "Find projects" },
-      { "<leader>pr", "<cmd>NeovimProjectHistory<cr>",  desc = "Project history" },
+      { "<leader>p",  "<cmd>NeovimProjectDiscover<cr>", desc = "Projects: recent" },
+      { "<leader>po", "<cmd>NeovimProjectDiscover<cr>", desc = "Projects: open project" },
+      { "<leader>pr", "<cmd>NeovimProjectHistory<cr>",  desc = "Projects: history" },
     },
   },
 }

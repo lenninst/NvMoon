@@ -59,7 +59,7 @@ return {
       local capabilities = require("blink.cmp").get_lsp_capabilities()
 
       require("roslyn").setup({
-        broad_search = true, -- busca .sln recursivamente hacia arriba (útil en monorepos)
+        broad_search = true, -- search for .sln recursively upwards (useful in monorepos)
         config = {
           capabilities = capabilities,
           settings = {

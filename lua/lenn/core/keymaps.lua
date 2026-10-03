@@ -1,96 +1,59 @@
 local map = vim.keymap.set
-local opts = { noremap = true, silent = true }
+local function o(desc)
+  return { noremap = true, silent = true, desc = desc }
+end
 
-map("n", "<leader>w", "<cmd>write<cr>", { desc = "Save" })
-map("n", "<leader>q", "<cmd>quit<cr>", { desc = "Exit" })
+map("n", "<leader>w", "<cmd>write<cr>", o("Write file"))
+map("n", "<leader>q", "<cmd>quit<cr>", o("Quit window"))
 
-map({ "n", "x" }, "gy", '"+y', { desc = "Copiar al portapapeles" })
-map({ "n", "x" }, "gp", '"+p', { desc = "Pegar del portapapeles" })
+map({ "n", "x" }, "gy", '"+y', o("Copy to clipboard (system)"))
+map({ "n", "x" }, "gp", '"+p', o("Paste from clipboard (system)"))
 
--- navegación entre ventanas
-map("n", "<C-h>", "<C-w>h", opts)
-map("n", "<C-j>", "<C-w>j", opts)
-map("n", "<C-k>", "<C-w>k", opts)
-map("n", "<C-l>", "<C-w>l", opts)
+-- window navigation
+map("n", "<C-h>", "<C-w>h", o("Window left"))
+map("n", "<C-j>", "<C-w>j", o("Window down"))
+map("n", "<C-k>", "<C-w>k", o("Window up"))
+map("n", "<C-l>", "<C-w>l", o("Window right"))
 
--- Redimensionar ventanas
-map("n", "<C-Up>", ":resize -2<CR>", opts)
-map("n", "<C-Down>", ":resize +2<CR>", opts)
-map("n", "<C-Left>", ":vertical resize -2<CR>", opts)
-map("n", "<C-Right>", ":vertical resize +2<CR>", opts)
+map("n", "<C-Up>", ":resize -2<CR>", o("Decrease window height"))
+map("n", "<C-Down>", ":resize +2<CR>", o("Increase window height"))
+map("n", "<C-Left>", ":vertical resize -2<CR>", o("Decrease window width"))
+map("n", "<C-Right>", ":vertical resize +2<CR>", o("Increase window width"))
 
--- Mover línea/bloque actual con Alt-j/k
-map("n", "<A-j>", ":m .+1<CR>==", opts)
-map("n", "<A-k>", ":m .-2<CR>==", opts)
-map("i", "<A-j>", "<Esc>:m .+1<CR>==gi", opts)
-map("i", "<A-k>", "<Esc>:m .-2<CR>==gi", opts)
-map("x", "<A-j>", ":m '>+1<CR>gv-gv", opts)
-map("x", "<A-k>", ":m '<-2<CR>gv-gv", opts)
+map("t", "<C-h>", "<C-\\><C-N><C-w>h", o("Window left"))
+map("t", "<C-j>", "<C-\\><C-N><C-w>j", o("Window down"))
+map("t", "<C-k>", "<C-\\><C-N><C-w>k", o("Window up"))
+map("t", "<C-l>", "<C-\\><C-N><C-w>l", o("Window right"))
 
--- Navegación por QuickFix
-map("n", "]q", ":cnext<CR>", opts)
-map("n", "[q", ":cprev<CR>", opts)
+map("i", "<A-Up>", "<C-\\><C-N><C-w>k", o("Window up"))
+map("i", "<A-Down>", "<C-\\><C-N><C-w>j", o("Window down"))
+map("i", "<A-Left>", "<C-\\><C-N><C-w>h", o("Window left"))
+map("i", "<A-Right>", "<C-\\><C-N><C-w>l", o("Window right"))
 
--- Navegación entre ventanas dentro de una terminal
-map("t", "<C-h>", "<C-\\><C-N><C-w>h", opts)
-map("t", "<C-j>", "<C-\\><C-N><C-w>j", opts)
-map("t", "<C-k>", "<C-\\><C-N><C-w>k", opts)
-map("t", "<C-l>", "<C-\\><C-N><C-w>l", opts)
+-- move current line / block
+map("n", "<A-j>", ":m .+1<CR>==", o("Move line down"))
+map("n", "<A-k>", ":m .-2<CR>==", o("Move line up"))
+map("i", "<A-j>", "<Esc>:m .+1<CR>==gi", o("Move line down"))
+map("i", "<A-k>", "<Esc>:m .-2<CR>==gi", o("Move line up"))
+map("x", "<A-j>", ":m '>+1<CR>gv-gv", o("Move selection down"))
+map("x", "<A-k>", ":m '<-2<CR>gv-gv", o("Move selection up"))
 
--- Navegación con Alt en insert mode
-map("i", "<A-Up>", "<C-\\><C-N><C-w>k", opts)
-map("i", "<A-Down>", "<C-\\><C-N><C-w>j", opts)
-map("i", "<A-Left>", "<C-\\><C-N><C-w>h", opts)
-map("i", "<A-Right>", "<C-\\><C-N><C-w>l", opts)
+-- indent keeping the visual selection
+map("v", "<", "<gv", o("Indent (keep selection)"))
+map("v", ">", ">gv", o("Dedent (keep selection)"))
 
--- Mejor indentado (se mantiene la selección visual)
-map("v", "<", "<gv", opts)
-map("v", ">", ">gv", opts)
+-- quickfix
+map("n", "]q", ":cnext<CR>", o("Next quickfix entry"))
+map("n", "[q", ":cprev<CR>", o("Previous quickfix entry"))
 
--- Space + L
-map("n", "<leader>la", vim.lsp.buf.code_action, {
-  desc = "LSP: Code Action",
-})
-
-map("n", "<leader>ld", vim.diagnostic.setloclist, {
-  desc = "LSP: Buffer Diagnostics",
-})
-
-map("n", "<leader>lf", function()
-  vim.lsp.buf.format({ async = true })
-end, {
-  desc = "LSP: Format",
-})
-
-map("n", "<leader>li", vim.lsp.buf.hover, {
-  desc = "LSP: Info",
-})
-
-map("n", "<leader>lj", vim.diagnostic.goto_next, {
-  desc = "LSP: Next Diagnostic",
-})
-
-map("n", "<leader>lk", vim.diagnostic.goto_prev, {
-  desc = "LSP: Prev Diagnostic",
-})
-
-map("n", "<leader>ll", vim.lsp.codelens.run, {
-  desc = "LSP: CodeLens Action",
-})
-
-map("n", "<leader>lq", vim.diagnostic.setqflist, {
-  desc = "LSP: Quickfix",
-})
-
-
-map("n", "<leader>ls", vim.lsp.buf.workspace_symbol, {
-  desc = "LSP: Workspace Symbols",
-})
-
-map("n", "<leader>lS", vim.lsp.buf.document_symbol, {
-  desc = "LSP: Document Symbols",
-})
-
-map("n", "<leader>lw", vim.diagnostic.setqflist, {
-  desc = "LSP: Diagnostics",
-})
+-- LSP
+map("n", "<leader>la", vim.lsp.buf.code_action, o("Code action"))
+map("n", "<leader>li", vim.lsp.buf.hover, o("Hover documentation"))
+map("n", "<leader>lr", vim.lsp.buf.rename, o("Rename symbol"))
+map("n", "<leader>ll", vim.lsp.codelens.run, o("Run CodeLens action"))
+map("n", "<leader>lS", vim.lsp.buf.document_symbol, o("Document symbols"))
+map("n", "<leader>ls", vim.lsp.buf.workspace_symbol, o("Workspace symbols"))
+map("n", "<leader>ld", vim.diagnostic.setloclist, o("Buffer diagnostics to loclist"))
+map("n", "<leader>lq", vim.diagnostic.setqflist, o("Buffer diagnostics to quickfix"))
+map("n", "<leader>lj", vim.diagnostic.goto_next, o("Next diagnostic"))
+map("n", "<leader>lk", vim.diagnostic.goto_prev, o("Previous diagnostic"))

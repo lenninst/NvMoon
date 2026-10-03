@@ -28,6 +28,21 @@ return {
     },
     keys = {
       {
+        "<leader>t",
+        function() require("toggleterm").toggle(nil, nil, nil) end,
+        desc = "Terminal: toggle (float)",
+      },
+      {
+        "<leader>th",
+        function() require("toggleterm").toggle(nil, nil, { direction = "horizontal" }) end,
+        desc = "Terminal: toggle (horizontal split)",
+      },
+      {
+        "<leader>tv",
+        function() require("toggleterm").toggle(nil, nil, { direction = "vertical" }) end,
+        desc = "Terminal: toggle (vertical split)",
+      },
+      {
         "<leader>c",
         function()
           local Terminal = require("toggleterm.terminal").Terminal
@@ -43,7 +58,7 @@ return {
           })
           codex:toggle()
         end,
-        desc = "Codex: Toggle (float)",
+        desc = "Codex: toggle",
       },
       {
         "<leader>cx",
@@ -51,7 +66,7 @@ return {
           local Terminal = require("toggleterm.terminal").Terminal
           Terminal:new({ cmd = "codex", direction = "float" }):toggle()
         end,
-        desc = "Codex: New instance",
+        desc = "Codex: new instance",
       },
     },
   },

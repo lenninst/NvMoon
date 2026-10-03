@@ -8,7 +8,7 @@ return {
         function()
           require("which-key").show({ global = false })
         end,
-        desc = "Buffer local keymaps",
+        desc = "Which Key: all mappings",
       },
     },
     opts = {
@@ -28,15 +28,20 @@ return {
         spacing = 3,
       },
       spec = {
-        { "<leader>f", group = "Find" },
-        { "<leader>h", group = "Git Hunk" },
-        { "<leader>g", group = "NeoGit" },
-        { "<leader>c", group = "Code actions" },
-        { "<leader>l", group = "LSP" },
-        { "<leader>d", group = "Diagnosticos" },
+        { "<leader>a", group = "AI" },
         { "<leader>b", group = "Buffers" },
-
+        { "<leader>c", group = "Codex" },
+        { "<leader>d", group = "Debug" },
+        { "<leader>e", group = "Explorer" },
+        { "<leader>f", group = "Search" },
+        { "<leader>h", group = "Hunk / Harpoon" },
+        { "<leader>l", group = "LSP" },
+        { "<leader>p", group = "Projects" },
+        { "<leader>r", group = "Remote (Distant)" },
+        { "<leader>t", group = "Terminal" },
+        { "<leader>u", group = "UI" },
+        { "<leader>x", group = "Trouble" },
       },
     },
-  }
+  },
 }

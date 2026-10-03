@@ -4,9 +4,9 @@ return {
     opts = {},
     keys = {
       {
-        "<leader>uf",
+        "<leader>ef",
         "<Plug>(WayfinderOpen)",
-        desc = "Wayfinder",
+        desc = "Wayfinder: find file by name",
       },
     },
   },

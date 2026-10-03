@@ -9,7 +9,7 @@ return {
     },
     cmd = "Neotree",
     keys = {
-      { "<leader>e", "<cmd>Neotree toggle<cr>", desc = "Explorer" },
+      { "<leader>e", "<cmd>Neotree toggle<cr>", desc = "Explorer: toggle" },
     },
     config = function()
       require("neo-tree").setup({
@@ -29,6 +29,7 @@ return {
           },
         },
         filesystem = {
+          hijack_netrw_behavior = "disabled",
           filtered_items = {
             visible = true,
             hide_dotfiles = false,

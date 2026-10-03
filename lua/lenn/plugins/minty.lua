@@ -4,8 +4,8 @@ return {
     dependencies = { "nvchad/volt" },
     cmd = { "Huefy", "Shades" },
     keys = {
-      { "<leader>cp", "<cmd>Huefy<cr>",  desc = "Color Picker" },
-      { "<leader>cs", "<cmd>Shades<cr>", desc = "Color Shades" },
+      { "<leader>uc", "<cmd>Huefy<cr>",  desc = "Color picker" },
+      { "<leader>us", "<cmd>Shades<cr>", desc = "Color shades" },
     },
   },
 }

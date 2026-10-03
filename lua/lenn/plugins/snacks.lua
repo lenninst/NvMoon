@@ -41,12 +41,12 @@ return {
       },
     },
     keys = {
-      { "<leader>ff", function() Snacks.picker.files() end,     desc = "Find files" },
-      { "<leader>fg", function() Snacks.picker.grep() end,      desc = "Live grep" },
-      { "<leader>fb", function() Snacks.picker.buffers() end,   desc = "Buffers" },
-      { "<leader>fh", function() Snacks.picker.help() end,      desc = "Help tags" },
-      { "<leader>fo", function() Snacks.picker.recent() end,    desc = "Recent files" },
-      { "<leader>fs", function() Snacks.picker.grep_word() end, desc = "Search word under cursor" },
+      { "<leader>ff", function() Snacks.picker.files() end,      desc = "Find files" },
+      { "<leader>fg", function() Snacks.picker.grep() end,       desc = "Live grep in project" },
+      { "<leader>fw", function() Snacks.picker.grep_word() end,  desc = "Grep word under cursor" },
+      { "<leader>fb", function() Snacks.picker.buffers() end,    desc = "Find buffers" },
+      { "<leader>fr", function() Snacks.picker.recent() end,     desc = "Recent files" },
+      { "<leader>fh", function() Snacks.picker.help() end,       desc = "Help tags" },
     },
   },
 }

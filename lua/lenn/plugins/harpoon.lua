@@ -14,19 +14,19 @@ return {
         {
           "<leader>ha",
           function() require("harpoon"):list():add() end,
-          desc = "Harpoon: Add file",
+          desc = "Harpoon: add file",
         },
         {
-          "<leader>hh",
+          "<leader>hm",
           function() require("harpoon").ui:toggle_quick_menu(require("harpoon"):list()) end,
-          desc = "Harpoon: Menu",
+          desc = "Harpoon: open menu",
         },
       }
       for i = 1, 4 do
         table.insert(keys, {
-          "<leader>" .. i,
+          "<leader>h" .. i,
           function() require("harpoon"):list():select(i) end,
-          desc = "Harpoon: File " .. i,
+          desc = "Harpoon: jump to file " .. i,
         })
       end
       return keys
