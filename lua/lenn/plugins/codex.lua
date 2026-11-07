@@ -43,24 +43,6 @@ return {
         desc = "Terminal: toggle (vertical split)",
       },
       {
-        "<leader>c",
-        function()
-          local Terminal = require("toggleterm.terminal").Terminal
-          local codex = Terminal:new({
-            cmd = "codex",
-            hidden = true,
-            direction = "float",
-            float_opts = {
-              border = "rounded",
-              width = math.floor(vim.o.columns * 0.85),
-              height = math.floor(vim.o.lines * 0.85),
-            },
-          })
-          codex:toggle()
-        end,
-        desc = "Codex: toggle",
-      },
-      {
         "<leader>cx",
         function()
           local Terminal = require("toggleterm.terminal").Terminal

@@ -24,6 +24,8 @@ return {
         "bash",
         "markdown",
         "markdown_inline",
+        "haskell",
+        "supercollider",
       })
 
       vim.api.nvim_create_autocmd("FileType", {

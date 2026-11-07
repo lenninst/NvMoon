@@ -25,6 +25,13 @@ return {
         css = { "prettier" },
         html = { "prettier" },
         markdown = { "prettier" },
+        haskell = function(bufnr)
+          local filename = vim.api.nvim_buf_get_name(bufnr)
+          if filename:match("%.tidal$") then
+            return { "ormolu" }
+          end
+          return {}
+        end,
         python = { "ruff_format" }
       },
       format_on_save = {

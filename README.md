@@ -49,9 +49,8 @@ mvim <file>       # open a file
 
 | Key | Group | Contents |
 |-----|-------|----------|
-| `space a` | AI (Opencode) | ask, model, agent, context |
+| `space a` | Agents | OpenCode, Codex, Claude Code, threads, shared panel |
 | `space b` | Buffers | cycle, jump, close, sort |
-| `space c` | Codex | codex sessions |
 | `space d` | Debug | breakpoints, dap-view, python tests |
 | `space e` | Explorer | neo-tree, wayfinder |
 | `space f` | Search | snacks picker |
@@ -85,6 +84,7 @@ mvim <file>       # open a file
 | Mapping | Description | Mode |
 |---------|-------------|------|
 | `C-h` `C-j` `C-k` `C-l` | Window left / down / up / right | normal |
+| `C-w` then `h` `j` `k` `l` | Move to the neighboring window in that direction | normal, terminal |
 | `C-h` `C-j` `C-k` `C-l` | Same, jumping to normal from the terminal | terminal |
 | `Alt-Up` `Alt-Down` `Alt-Left` `Alt-Right` | Move between windows without leaving insert | insert |
 | `C-Up` / `C-Down` | Decrease / increase window height | normal |
@@ -245,7 +245,7 @@ Only exist in buffers inside a git repository.
 
 ## AI, Codex and Terminal
 
-**Opencode**
+**OpenCode**
 
 | Mapping | Description |
 |---------|-------------|
@@ -255,13 +255,12 @@ Only exist in buffers inside a git repository.
 | `space a a` | Select agent |
 | `space a n` | Add context (`@`) |
 | `space a s` | General menu |
+| `space a p` | Toggle the shared Agents panel (prompts for an agent if none is open) |
+| `space a l` | Toggle the saved threads panel |
+| `space a t` | Create a session after choosing OpenCode, Codex, or Claude Code |
+| `space a r` | Pick a saved OpenCode thread |
 
-**Codex (float)**
-
-| Mapping | Description |
-|---------|-------------|
-| `space c` | Toggle codex |
-| `space c x` | New codex instance |
+In any agent terminal, press `Ctrl-n` to create another session and choose its agent. In the Threads panel, press `r` to refresh and `<CR>` on a thread to resume it; resumed sessions join the shared Agents panel.
 
 **Terminal (toggleterm)**
 

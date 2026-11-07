@@ -25,6 +25,12 @@ map("t", "<C-j>", "<C-\\><C-N><C-w>j", o("Window down"))
 map("t", "<C-k>", "<C-\\><C-N><C-w>k", o("Window up"))
 map("t", "<C-l>", "<C-\\><C-N><C-w>l", o("Window right"))
 
+-- Ctrl-w followed by hjkl works from terminal-mode agent panels too.
+map("t", "<C-w>h", "<C-\\><C-N><C-w>h", o("Window left"))
+map("t", "<C-w>j", "<C-\\><C-N><C-w>j", o("Window down"))
+map("t", "<C-w>k", "<C-\\><C-N><C-w>k", o("Window up"))
+map("t", "<C-w>l", "<C-\\><C-N><C-w>l", o("Window right"))
+
 map("i", "<A-Up>", "<C-\\><C-N><C-w>k", o("Window up"))
 map("i", "<A-Down>", "<C-\\><C-N><C-w>j", o("Window down"))
 map("i", "<A-Left>", "<C-\\><C-N><C-w>h", o("Window left"))
@@ -57,3 +63,7 @@ map("n", "<leader>ld", vim.diagnostic.setloclist, o("Buffer diagnostics to locli
 map("n", "<leader>lq", vim.diagnostic.setqflist, o("Buffer diagnostics to quickfix"))
 map("n", "<leader>lj", vim.diagnostic.goto_next, o("Next diagnostic"))
 map("n", "<leader>lk", vim.diagnostic.goto_prev, o("Previous diagnostic"))
+
+-- Kiro agent browser & creator
+map("n", "<leader>ka", function() require("lenn.kiro-agents").browse() end, o("Kiro: browse agents"))
+map("n", "<leader>kA", function() require("lenn.kiro-agents").create() end, o("Kiro: create new agent"))
