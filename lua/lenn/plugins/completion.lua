@@ -1,5 +1,10 @@
 return {
   {
+    "saghen/blink.compat",
+    lazy = true,
+    opts = {},
+  },
+  {
     "saghen/blink.cmp",
     version = "1.*",
     dependencies = { "rafamadriz/friendly-snippets" },
@@ -30,7 +35,15 @@ return {
         },
       },
       sources = {
-        default = { "lsp", "path", "snippets", "buffer" },
+        default = { "lsp", "omni", "path", "snippets", "buffer" },
+        providers = {
+          omni = {
+            name = "omni",
+            module = "blink.compat.source",
+            score_offset = -3,
+            opts = {},
+          },
+        },
       },
       signature = { enabled = true },
     },

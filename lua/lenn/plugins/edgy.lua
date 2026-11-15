@@ -1,69 +1,34 @@
-local function agent_panel_width()
-  return math.max(18, math.min(42, math.floor(vim.o.columns * 0.3)))
+-- Edgy layout — only handles the file explorer on the right.
+-- Agent panels (Threads + Agent) are created manually by agent-workspace.lua
+-- using vertical splits on the left side.
+
+local M = {}
+
+local function toggle_workspace()
+  -- Toggle agent panels (Threads + Agent) via agent-workspace
+  require("lenn.agent-workspace").toggle()
 end
 
-local function threads_panel_height()
-  return math.max(4, math.min(18, math.floor(vim.o.lines * 0.22)))
+local function toggle_threads()
+  -- Toggle only the Threads panel independently using agent-workspace
+  local agent_ws = require("lenn.agent-workspace")
+  agent_ws.toggle_threads_only()
 end
 
-local function new_agent_session()
-  require("lenn.agent-sessions").new()
+local function new_session()
+  require("lenn.agent-workspace").new_session()
 end
 
-local function open_opencode_session()
-  require("lenn.agent-sessions").open("OpenCode", "opencode")
+local function refresh_threads()
+  require("lenn.agent-workspace").refresh()
 end
 
-local function toggle_agent_view()
-  local layout = require("edgy.config").layout.left
-  if layout then
-    for _, view in ipairs(layout.views) do
-      if view.get_title() == "Agents" then
-        for _, win in ipairs(view.wins) do
-          if win:is_valid() and not win:is_pinned() then
-            win:toggle()
-            return true
-          end
-        end
-      end
-    end
-  end
-  new_agent_session()
+local function open_market()
+  require("lenn.agent-workspace").open_market()
 end
 
-local function show_agent_view(open)
-  local layout = require("edgy.config").layout.left
-  if layout then
-    for _, view in ipairs(layout.views) do
-      if view.get_title() == "Agents" then
-        for _, win in ipairs(view.wins) do
-          if win:is_valid() and not win:is_pinned() then
-            if not win.visible then
-              win:show(true)
-            end
-            vim.api.nvim_set_current_win(win.win)
-            return
-          end
-        end
-      end
-    end
-  end
-  open()
-end
-
-local function send_to_opencode(keys)
-  show_agent_view(open_opencode_session)
-  local term
-  for _, candidate in ipairs(require("toggleterm.terminal").get_all(true)) do
-    if vim.b[candidate.bufnr].agent_provider == "OpenCode" then
-      term = candidate
-    end
-  end
-  vim.defer_fn(function()
-    if term and term.job_id then
-      term:send(keys)
-    end
-  end, 500)
+local function open_skill_market()
+  require("lenn.agent-workspace").open_skill_market()
 end
 
 return {
@@ -74,72 +39,53 @@ return {
     keys = {
       {
         "<leader>ap",
-        function()
-          toggle_agent_view()
-        end,
-        desc = "Agents: toggle panel",
-      },
-      {
-        "<leader>at",
-        new_agent_session,
-        desc = "Agents: new session",
+        toggle_workspace,
+        desc = "Agents: toggle workspace",
       },
       {
         "<leader>al",
-        function()
-          require("edgy").toggle("bottom")
-        end,
-        desc = "Threads: toggle panel",
+        toggle_threads,
+        desc = "Agents: toggle threads only",
       },
       {
-        "<leader>am",
-        function()
-          send_to_opencode("\24m")
-        end,
-        desc = "OpenCode: select model",
+        "<leader>at",
+        new_session,
+        desc = "Agents: new session",
       },
       {
         "<leader>ar",
+        refresh_threads,
+        desc = "Agents: refresh threads",
+      },
+      {
+        "<leader>am",
+        open_market,
+        desc = "Agents: open market",
+      },
+      {
+        "<leader>asm",
+        open_skill_market,
+        desc = "Agents: open skill market",
+      },
+      {
+        "<leader>ae",
         function()
-          send_to_opencode("\24l")
+          require("edgy").toggle("right")
         end,
-        desc = "OpenCode: switch thread",
+        desc = "Explorer: toggle",
       },
     },
     init = function()
       vim.opt.laststatus = 3
       vim.opt.splitkeep = "screen"
 
-      local group = vim.api.nvim_create_augroup("NvMoonEdgyResize", { clear = true })
-      vim.api.nvim_create_autocmd("VimResized", {
-        group = group,
-        callback = function()
-          vim.schedule(function()
-            local layout = package.loaded["edgy.layout"]
-            if layout then
-              layout.layout()
-            end
-          end)
-        end,
-      })
+      -- Pre-load agent-workspace so commands exist
+      require("lenn.agent-workspace")
     end,
     opts = {
       animate = { enabled = false },
-      options = {
-        left = { size = agent_panel_width },
-        bottom = { size = threads_panel_height },
-      },
-      left = {
-        {
-          title = "Agents",
-          ft = "toggleterm",
-          filter = function(buf)
-            return vim.b[buf].agent_panel == true or vim.b[buf].agent_provider ~= nil
-          end,
-          size = { width = agent_panel_width },
-          wo = { winfixwidth = false },
-        },
-      },
+      options = {},
+      left = {},
       right = {
         {
           title = "Explorer",
@@ -150,28 +96,16 @@ return {
           size = { width = 30 },
         },
       },
-      bottom = {
-        {
-          title = "Threads",
-          ft = "agent-threads",
-          size = { height = threads_panel_height },
-          pinned = true,
-          open = function()
-            require("lenn.agent-threads").open()
-          end,
-        },
-      },
       wo = {
-        -- Avoid drawing Edgy's winbar during embedded UI screen resizes.
-        -- Neovim 0.12.6 can assert on an out-of-range grid row in this path.
         winbar = false,
-        winfixwidth = false,
+        winfixwidth = true,
+        winfixheight = true,
         signcolumn = "no",
         winhighlight = "WinBar:EdgyWinBar,Normal:EdgyNormal",
       },
       keys = {
-        ["N"] = function()
-          new_agent_session()
+        ["<C-n>"] = function()
+          new_session()
         end,
         ["q"] = function(win)
           win:close()
@@ -190,12 +124,6 @@ return {
         end,
         ["<c-w><lt>"] = function(win)
           win:resize("width", -2)
-        end,
-        ["<c-w>+"] = function(win)
-          win:resize("height", 2)
-        end,
-        ["<c-w>-"] = function(win)
-          win:resize("height", -2)
         end,
         ["Q"] = function(win)
           win.view.edgebar:close()
