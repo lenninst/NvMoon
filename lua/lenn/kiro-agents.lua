@@ -5,6 +5,7 @@
 --   <leader>kA  →  create new agent (step-by-step wizard)
 
 local M = {}
+local nf = require("lenn.icons")
 
 -- ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -113,7 +114,7 @@ function M.browse()
 
     local items = vim.tbl_map(function(a)
       local tags = {}
-      if a.default then table.insert(tags, "● default") end
+      if a.default then table.insert(tags, nf.dot .. " default") end
       if a.builtin then table.insert(tags, "built-in")  end
       return {
         text  = a.name .. "  " .. a.description,
@@ -198,7 +199,10 @@ function M.create()
 
           -- 5 · Save location
           vim.ui.select(
-            { "global  → ~/.kiro/agents/", "workspace  → .kiro/agents/" },
+            {
+              "global " .. nf.arrow_right .. " ~/.kiro/agents/",
+              "workspace " .. nf.arrow_right .. " .kiro/agents/",
+            },
             { prompt = "Save location:" },
             function(choice)
               if not choice then
@@ -251,7 +255,7 @@ function M.create()
               end
 
               vim.notify(
-                ("Agent '%s' saved → %s"):format(fields.name, path),
+                ("Agent '%s' saved %s %s"):format(fields.name, nf.arrow_right, path),
                 vim.log.levels.INFO
               )
 
@@ -262,7 +266,7 @@ function M.create()
                 on_exit = function(_, code)
                   vim.schedule(function()
                     if code == 0 then
-                      vim.notify("Agent config valid ✓", vim.log.levels.INFO)
+                      vim.notify("Agent config valid " .. nf.check, vim.log.levels.INFO)
                     else
                       vim.notify("Validation warnings — check " .. path, vim.log.levels.WARN)
                     end

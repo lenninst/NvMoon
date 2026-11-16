@@ -82,6 +82,9 @@ table.insert(specs, require("lenn.plugins.neogit"))
 -- Projects
 table.insert(specs, require("lenn.plugins.projects"))
 
+-- Neorg (norg notes)
+table.insert(specs, require("lenn.plugins.neorg"))
+
 -- Minty
 table.insert(specs, require("lenn.plugins.minty"))
 

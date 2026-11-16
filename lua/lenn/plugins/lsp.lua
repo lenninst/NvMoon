@@ -2,12 +2,13 @@ return {
   {
     "williamboman/mason.nvim",
     config = function()
+      local nf = require("lenn.icons")
       require("mason").setup({
         ui = {
           icons = {
-            package_installed = "✓",
-            package_pending = "➜",
-            package_uninstalled = "✗",
+            package_installed = nf.check,
+            package_pending = nf.arrow_right,
+            package_uninstalled = nf.close,
           },
         },
       })

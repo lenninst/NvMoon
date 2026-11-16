@@ -52,6 +52,7 @@ return {
     },
     config = function()
       local dap = require("dap")
+      local nf = require("lenn.icons")
 
       -- Adapter para C#
       dap.adapters.netcoredbg = {
@@ -75,8 +76,8 @@ return {
         },
       }
 
-      vim.fn.sign_define("DapBreakpoint", { text = "●", texthl = "DiagnosticError" })
-      vim.fn.sign_define("DapStopped", { text = "▶", texthl = "DiagnosticWarn" })
+      vim.fn.sign_define("DapBreakpoint", { text = nf.dot, texthl = "DiagnosticError" })
+      vim.fn.sign_define("DapStopped", { text = nf.play, texthl = "DiagnosticWarn" })
     end,
   },
 }

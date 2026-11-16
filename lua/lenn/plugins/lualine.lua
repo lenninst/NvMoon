@@ -3,14 +3,15 @@ return {
     "nvim-lualine/lualine.nvim",
     dependencies = { "nvim-tree/nvim-web-devicons" },
     config = function()
+      local nf = require("lenn.icons")
       local ICON = {
-        explorer = "\u{f07c}",
-        finder = "\u{f002}",
-        lsp = "\u{f0e7}",
-        error = "\u{f00d}",
-        warn = "\u{f071}",
-        diff = "\u{f440}",
-        outline = "\u{f0e8}",
+        explorer = nf.folder_open,
+        finder = nf.lualine_finder,
+        lsp = nf.lualine_lsp,
+        error = nf.close,
+        warn = nf.lualine_warn,
+        diff = nf.diff_modified,
+        outline = nf.lualine_outline,
       }
 
       local palette = {}

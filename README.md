@@ -26,6 +26,7 @@ mvim <file>       # open a file
 - [Search / Files](#search--files)
 - [Explorer](#explorer)
 - [Projects](#projects)
+- [Notes (Norg)](#notes-norg)
 - [LSP](#lsp)
 - [Diagnostics and lists (Trouble)](#diagnostics-and-lists-trouble)
 - [Git](#git)
@@ -57,6 +58,7 @@ mvim <file>       # open a file
 | `space g` | Git | neogit |
 | `space h` | Hunks / Harpoon | gitsigns + harpoon marks |
 | `space l` | LSP | code actions, format, hover, symbols |
+| `space n` | Notes | neorg, journal, table of contents |
 | `space p` | Projects | neovim-project |
 | `space r` | Remote | distant.nvim |
 | `space t` | Terminal | toggleterm |
@@ -167,6 +169,28 @@ Detects projects in `~/dev/*` and `~/*` via `.git`, `.hg`, `.svn`, `package.json
 
 ---
 
+## Notes (Norg)
+
+`neorg` with the `norg` treesitter parser (installed from luarocks into
+`stdpath("data")/lazy-rocks`). The default workspace is `~/notes`, with
+`index.norg` as its root note; journals are flat files in `~/notes/journal/`.
+
+| Mapping | Description |
+|---------|-------------|
+| `space n n` | New note in the workspace |
+| `space n j` | Today's journal entry |
+| `space n y` | Yesterday's journal entry |
+| `space n t` | Insert / update the table of contents |
+| `space n w` | Open the `notes` workspace |
+| `space n i` | Open `~/notes/index.norg` |
+
+Default `neorg` keybinds are kept under `<LocalLeader>` (`\ t d` marks a TODO
+as done, `\ t p` pending, `\ t u` undone, `\ t h` on hold, `\ t c` cancelled,
+`\ n n` new note). Concealer is on with the `diamond` icon preset; `norg`
+buffers enable wrap, linebreak and spell.
+
+---
+
 ## LSP
 
 | Mapping | Description |
@@ -260,7 +284,7 @@ Only exist in buffers inside a git repository.
 | `space a t` | Create a session after choosing OpenCode, Codex, or Claude Code |
 | `space a r` | Pick a saved OpenCode thread |
 
-In any agent terminal, press `Ctrl-n` to create another session and choose its agent. In the Threads panel, press `r` to refresh and `<CR>` on a thread to resume it; resumed sessions join the shared Agents panel.
+In any agent terminal, press `Ctrl-n` to create another session and choose its agent. The Agent panel shows a persistent `Providers` tab and one tab for each active task or thread in the current project. When an agent process exits, its terminal output remains visible; an In progress task keeps its tab so you can review the result before verifying it, and files changed by that task open in editor buffers with the most recently modified file focused. `<Tab>` advances one tab per press and wraps back to Providers; holding it does not race through the tab list. The tabs show numbers while Tab is held and briefly after release; press a number to jump directly to that tab. `<S-Tab>` moves backward. `Ctrl-g` returns to Providers without stopping the current agent, and `<CR>` opens the selected tab. In the Threads panel, select a project with `j`/`k` and press `+` to choose an agent and create a session there; `r` refreshes, and `l` or `<CR>` on a thread opens it. On a project row, `l` expands the project and `<CR>` toggles it. Press `<Tab>` to switch between Threads and Tasks. Tasks shows local tasks saved under Neovim's data directory and open GitHub issues for the selected project's `origin`; use `+` to add a local task and enter optional acceptance criteria and a verification command. Press `>` to assign it to an agent; the task moves to In progress, and `o` reopens its linked thread. Press `v` to run its verification command (exit code 0 passes); tasks without a command use a manual pass/fail prompt. Use `x` to mark complete, `f` to mark failed, `a` to archive, or `u` to restore to Pending. Use `[`/`]` to change project.
 
 **Terminal (toggleterm)**
 
@@ -313,6 +337,10 @@ Debuggers configured: `debugpy` (Python) and `netcoredbg` (C#).
 ---
 
 ## UI / Colors
+
+UI icons use Nerd Font glyphs from `lua/lenn/icons.lua`. Custom agent icons are
+accepted only from that approved glyph set; other characters fall back to the
+default Nerd Font icon.
 
 | Mapping | Description |
 |---------|-------------|
@@ -430,5 +458,5 @@ lua/lenn/
     ├── git.lua        neogit.lua    trouble.lua  wayfinder.lua
     ├── codex.lua      distant.lua   minty.lua    dap.lua
     ├── dap-python.lua  aerial.lua   autopairs.lua flash.lua
-    ├── harpoon.lua    mason-tools.lua
+    ├── harpoon.lua    mason-tools.lua  neorg.lua
 ```

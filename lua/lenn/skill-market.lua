@@ -5,6 +5,7 @@
 -- Usage: require("lenn.skill-market").open()
 
 local M = {}
+local nf = require("lenn.icons")
 
 local skills_module = require("lenn.agent-skills")
 local skill_repo = require("lenn.skill-repo")
@@ -17,14 +18,14 @@ local install_win_ref = nil      -- reference to window for callbacks
 
 -- ─── Icons ──────────────────────────────────────────────────────────────────
 local icons = {
-  enabled = "✓",
-  disabled = "○",
-  installed = "✓",
-  not_installed = "○",
-  skill = "🔧",
-  search = "🔍",
-  loading = "⏳",
-  external = "↗",
+  enabled = nf.check,
+  disabled = nf.circle,
+  installed = nf.check,
+  not_installed = nf.circle,
+  skill = nf.wrench,
+  search = nf.search,
+  loading = nf.hourglass,
+  external = nf.external,
 }
 
 -- ─── Helpers ────────────────────────────────────────────────────────────────
@@ -121,7 +122,7 @@ local function render_marketplace_tab(buf, catalog)
   -- Header with search info
   local header_info = string.format("  Marketplace: %d/%d installed  (Tab switch  ·  <CR> install  ·  K desc  ·  / search  ·  U install from URL  ·  R refresh  ·  q close)", installed_count, total)
   if search_query ~= "" then
-    header_info = string.format("  🔍 Search: '%s' (%d results)  (Esc clear  ·  <CR> install  ·  K desc  ·  U from URL  ·  q close)", search_query, #catalog)
+    header_info = string.format("  %s Search: '%s' (%d results)  (Esc clear  ·  <CR> install  ·  K desc  ·  U from URL  ·  q close)", icons.search, search_query, #catalog)
   end
   table.insert(lines, header_info)
   table.insert(lines, "")

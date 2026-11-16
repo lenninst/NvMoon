@@ -6,6 +6,7 @@
 -- The module logic lives below and is exposed via a lazy `config` callback.
 
 local M = {}
+local nf = require("lenn.icons")
 
 -- ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ function M.browse()
         -- fields used in the picker display
         _name = a.name,
         _desc = a.description,
-        _meta = (a.default and "● default" or "")
+        _meta = (a.default and (nf.dot .. " default") or "")
                .. (a.builtin and "  built-in" or ""),
       }
     end, agents)
@@ -273,7 +274,7 @@ function M.create()
                 on_exit = function(_, code)
                   vim.schedule(function()
                     if code == 0 then
-                      vim.notify("Agent config is valid ✓", vim.log.levels.INFO)
+                      vim.notify("Agent config is valid " .. nf.check, vim.log.levels.INFO)
                     else
                       vim.notify(
                         "Validation warnings (agent still saved): " .. path,

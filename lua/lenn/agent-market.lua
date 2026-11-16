@@ -4,13 +4,14 @@
 -- Usage: require("lenn.agent-market").open()
 
 local M = {}
+local nf = require("lenn.icons")
 
 -- ─── Icons (Mason-style) ────────────────────────────────────────────────────
 local icons = {
-  installed = "◉",
-  not_installed = "○",
-  configured = "✓",
-  package = "📦",
+  installed = nf.dot,
+  not_installed = nf.circle,
+  configured = nf.check,
+  package = nf.package,
 }
 
 -- ─── Market Catalog ─────────────────────────────────────────────────────────
@@ -18,7 +19,7 @@ local MARKET_AGENTS = {
   -- ─── ACP Registry agents (Zed-compatible) ─────────────────────────────
   {
     name = "Claude Code",
-    icon = "◆",
+    icon = nf.claude,
     description = "Agente de Anthropic, potente para refactorización y arquitectura.",
     cmd = "claude",
     install_cmd = "npm install -g @anthropic-ai/claude-code",
@@ -28,7 +29,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Codex",
-    icon = "⌘",
+    icon = nf.codex,
     description = "Agente de OpenAI para generación y explicación de código.",
     cmd = "codex",
     install_cmd = "npm install -g @openai/codex",
@@ -38,7 +39,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Copilot",
-    icon = "🐙",
+    icon = nf.copilot,
     description = "Agente de GitHub Copilot para terminal y automatización.",
     cmd = "copilot",
     install_cmd = "npm install -g @github/copilot",
@@ -48,7 +49,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Cursor",
-    icon = "🔮",
+    icon = nf.cursor,
     description = "Agente de Cursor para terminal, soporta GPT-5 y Claude.",
     cmd = "cursor-agent",
     install_cmd = "curl -fsSL https://get.cursor.sh | bash",
@@ -58,7 +59,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Factory Droid",
-    icon = "🤖",
+    icon = nf.factory,
     description = "Agente de Factory para terminal, desktop y cloud con BYOK.",
     cmd = "droid",
     install_cmd = "curl -fsSL https://get.factory.ai | sh",
@@ -68,7 +69,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Gemini CLI",
-    icon = "💎",
+    icon = nf.gemini,
     description = "Agente de Google Gemini para desarrollo de software.",
     cmd = "gemini",
     install_cmd = "npm install -g @google/gemini-cli",
@@ -78,7 +79,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "OpenCode",
-    icon = "◼",
+    icon = nf.opencode,
     description = "Agente de código open-source, rápido y ligero.",
     cmd = "opencode",
     install_cmd = "curl -fsSL https://opencode.ai/install.sh | sh",
@@ -88,7 +89,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Pi",
-    icon = "π",
+    icon = nf.pi,
     description = "Agente open-source de Earendil Works con soporte multi-proveedor.",
     cmd = "pi",
     install_cmd = "npm install -g @earendil-works/pi-coding-agent",
@@ -98,7 +99,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Poolside",
-    icon = "🏊",
+    icon = nf.poolside,
     description = "Agente de Poolside con sandbox, MCP y ACP integrado.",
     cmd = "pool",
     install_cmd = "curl -fsSL https://downloads.poolside.ai/pool/install.sh | sh",
@@ -109,7 +110,7 @@ local MARKET_AGENTS = {
   -- ─── Popular CLI agents ───────────────────────────────────────────────
   {
     name = "Aider",
-    icon = "🦾",
+    icon = nf.aider,
     description = "Editor de código con IA, soporta múltiples modelos.",
     cmd = "aider",
     install_cmd = "pip install aider-chat",
@@ -119,7 +120,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Cline",
-    icon = "⚙️",
+    icon = nf.cline,
     description = "Agente open-source con plugins, schedules y headless CI.",
     cmd = "cline",
     install_cmd = "npm install -g cline",
@@ -129,7 +130,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Deep Agents",
-    icon = "🧠",
+    icon = nf.deepagents,
     description = "Agente de LangChain con memoria persistente y búsqueda web.",
     cmd = "deepagents",
     install_cmd = "uv tool install deepagents-cli",
@@ -139,7 +140,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Kiro",
-    icon = "⚡",
+    icon = nf.kiro,
     description = "Agente de AWS para desarrollo con agentes personalizados.",
     cmd = "kiro-cli chat",
     install_cmd = "npm install -g @aws/kiro-cli",
@@ -149,7 +150,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Sweep",
-    icon = "🧹",
+    icon = nf.sweep,
     description = "Agente para implementar issues de GitHub automáticamente.",
     cmd = "sweep",
     install_cmd = "pip install sweep",
@@ -160,7 +161,7 @@ local MARKET_AGENTS = {
   -- ─── IDE-integrated agents (no standalone CLI) ────────────────────────
   {
     name = "Amazon Q",
-    icon = "🔵",
+    icon = nf.amazon_q,
     description = "Asistente de AWS para código, seguridad y operaciones.",
     cmd = "amazon-q",
     install_cmd = "Disponible como extensión IDE.",
@@ -169,7 +170,7 @@ local MARKET_AGENTS = {
   },
   {
     name = "Windsurf Cascade",
-    icon = "🌊",
+    icon = nf.windsurf,
     description = "Agente de Codeium integrado en editor Windsurf.",
     cmd = "cascade",
     install_cmd = "Disponible desde Windsurf editor.",
@@ -179,7 +180,7 @@ local MARKET_AGENTS = {
   -- ─── JetBrains ecosystem ──────────────────────────────────────────────
   {
     name = "Junie",
-    icon = "🟢",
+    icon = nf.junie,
     description = "Asistente de JetBrains para desarrollo autónomo.",
     cmd = "junie",
     install_cmd = "Disponible en JetBrains Toolbox o IDEs.",
@@ -380,12 +381,12 @@ function M.render(buf, agents)
     if configured and installed then
       status_icon = icons.installed
     elseif configured and not installed then
-      status_icon = "◉" -- configured but not installed
+      status_icon = icons.configured -- configured but not installed
     else
       status_icon = icons.not_installed
     end
 
-    local name_display = agent.icon .. " " .. agent.name
+    local name_display = nf.normalize(agent.icon) .. " " .. agent.name
     local line = string.format("  %s  %s", status_icon, name_display)
     table.insert(lines, line)
   end
@@ -438,10 +439,10 @@ function M.toggle_agent(buf, agents, agent)
         break
       end
     end
-    vim.notify("✗ " .. agent.name .. " removido del workspace", vim.log.levels.INFO, { title = "Agent Market" })
+    vim.notify(nf.close .. " " .. agent.name .. " removido del workspace", vim.log.levels.INFO, { title = "Agent Market" })
   else
     table.insert(installed_providers, agent.name)
-    vim.notify("✓ " .. agent.name .. " agregado al workspace", vim.log.levels.INFO, { title = "Agent Market" })
+    vim.notify(nf.check .. " " .. agent.name .. " agregado al workspace", vim.log.levels.INFO, { title = "Agent Market" })
   end
   M.render(buf, agents)
 end
@@ -453,7 +454,7 @@ function M.install_agent(buf, agents, agent)
   end
 
   table.insert(installed_providers, agent.name)
-  vim.notify("✓ " .. agent.name .. " configurado", vim.log.levels.INFO, { title = "Agent Market" })
+  vim.notify(nf.check .. " " .. agent.name .. " configurado", vim.log.levels.INFO, { title = "Agent Market" })
 
   -- If not installed on system, open terminal for installation
   if not is_installed(agent) and agent.install_cmd and agent.install_cmd:sub(1, 3) ~= "Dis" then
@@ -475,7 +476,7 @@ function M.uninstall_agent(buf, agents, agent)
       break
     end
   end
-  vim.notify("✗ " .. agent.name .. " removido", vim.log.levels.INFO, { title = "Agent Market" })
+  vim.notify(nf.close .. " " .. agent.name .. " removido", vim.log.levels.INFO, { title = "Agent Market" })
   M.render(buf, agents)
 end
 
@@ -522,10 +523,10 @@ end
 function M.add_custom_agent(buf, agents)
   vim.ui.input({ prompt = "Comando del agente: " }, function(cmd)
     if not cmd or cmd == "" then return end
-    vim.ui.input({ prompt = "Icono (emoji): ", default = "✦" }, function(icon)
+    vim.ui.input({ prompt = "Icono Nerd Font del conjunto del proyecto: ", default = nf.generic }, function(icon)
       local custom = {
         name = cmd,
-        icon = icon or "✦",
+        icon = nf.normalize(icon, nf.generic),
         cmd = cmd,
         description = "Agente personalizado",
         url = "",
@@ -534,7 +535,7 @@ function M.add_custom_agent(buf, agents)
       }
       table.insert(custom_providers, custom)
       table.insert(installed_providers, custom.name)
-      vim.notify("✓ " .. custom.name .. " agregado", vim.log.levels.INFO, { title = "Agent Market" })
+      vim.notify(nf.check .. " " .. custom.name .. " agregado", vim.log.levels.INFO, { title = "Agent Market" })
       if buf and vim.api.nvim_buf_is_valid(buf) then
         -- Rebuild agents list
         local all = vim.list_extend({}, MARKET_AGENTS)
@@ -561,8 +562,8 @@ function M.show_help(buf, agents)
     "  q           Close window",
     "",
     "Status icons:",
-    "  ◉  Configured and installed",
-    "  ○  Not configured",
+    "  " .. icons.installed .. "  Configured and installed",
+    "  " .. icons.not_installed .. "  Not configured",
     "",
     "Press any key to close",
   }
@@ -694,7 +695,7 @@ function M.get_providers()
     table.insert(providers, {
       name = custom.name,
       cmd = custom.cmd,
-      icon = custom.icon or "✦",
+      icon = nf.normalize(custom.icon, nf.generic),
     })
   end
   return providers

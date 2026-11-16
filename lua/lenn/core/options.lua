@@ -1,4 +1,5 @@
 local opt = vim.opt
+local nf = require("lenn.icons")
 
 opt.number = true
 opt.relativenumber = true
@@ -44,7 +45,7 @@ vim.api.nvim_create_autocmd("VimEnter", {
 
 vim.diagnostic.config({
   virtual_text = {
-    prefix = "",
+    prefix = nf.diagnostic,
     spacing = 4,
     source = "if_many",
   },
@@ -76,10 +77,10 @@ vim.filetype.add({
 vim.diagnostic.config({
   signs = {
     text = {
-      [vim.diagnostic.severity.ERROR] = "",
-      [vim.diagnostic.severity.WARN]  = "",
-      [vim.diagnostic.severity.INFO]  = "",
-      [vim.diagnostic.severity.HINT]  = "",
+      [vim.diagnostic.severity.ERROR] = nf.diagnostic,
+      [vim.diagnostic.severity.WARN]  = nf.diagnostic,
+      [vim.diagnostic.severity.INFO]  = nf.diagnostic,
+      [vim.diagnostic.severity.HINT]  = nf.diagnostic,
     },
   },
 })

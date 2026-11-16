@@ -12,20 +12,21 @@ return {
       { "<leader>e", "<cmd>Neotree toggle<cr>", desc = "Explorer: toggle" },
     },
     config = function()
+      local nf = require("lenn.icons")
       require("neo-tree").setup({
         close_if_last_window = true,
         default_component_configs = {
           indent = {
             with_markers = false,
             with_expanders = true,
-            expander_collapsed = "",
-            expander_expanded = "",
+            expander_collapsed = nf.collapsed,
+            expander_expanded = nf.expanded,
           },
           icon = {
-            folder_closed = " ",
-            folder_open = " ",
-            folder_empty = " ",
-            default = "",
+            folder_closed = nf.folder_closed .. " ",
+            folder_open = nf.folder_open .. " ",
+            folder_empty = nf.folder_empty .. " ",
+            default = nf.file_default,
           },
         },
         filesystem = {
@@ -46,9 +47,9 @@ return {
           winbar = true,
           statusline = false,
           sources = {
-            { source = "filesystem", display_name = " Files" },
-            { source = "buffers", display_name = " Buffers" },
-            { source = "git_status", display_name = " Git" },
+            { source = "filesystem", display_name = nf.explorer_files .. " Files" },
+            { source = "buffers", display_name = nf.file_default .. " Buffers" },
+            { source = "git_status", display_name = nf.explorer_git .. " Git" },
           },
         },
       })

@@ -3,14 +3,15 @@ return {
     "lewis6991/gitsigns.nvim",
     event = { "BufReadPre", "BufNewFile" },
     config = function()
+      local nf = require("lenn.icons")
       require("gitsigns").setup({
         signs = {
-          add = { text = "│" },
-          change = { text = "│" },
-          delete = { text = "_" },
-          topdelete = { text = "‾" },
-          changedelete = { text = "~" },
-          untracked = { text = "┆" },
+          add = { text = nf.diff_added },
+          change = { text = nf.diff_modified },
+          delete = { text = nf.diff_removed },
+          topdelete = { text = nf.diff_removed },
+          changedelete = { text = nf.diff_modified },
+          untracked = { text = nf.diff_added },
         },
         current_line_blame = false,
         on_attach = function(bufnr)

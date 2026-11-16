@@ -21,6 +21,7 @@ return {
     },
 
     config = function()
+      local nf = require("lenn.icons")
       require("bufferline").setup({
         options = {
           mode = "buffers",
@@ -29,7 +30,7 @@ return {
           right_mouse_command = "bdelete! %d",
           left_mouse_command = "buffer %d",
           indicator = {
-            icon = "▎",
+            icon = nf.active,
             style = "icon",
           },
           custom_filter = function(bufnr)
@@ -44,8 +45,8 @@ return {
             return not (name == "" and pristine)
           end,
           buffer_close_icon = "",
-          modified_icon = "●",
-          close_icon = "",
+          modified_icon = nf.dot,
+          close_icon = nf.close,
           left_trunc_marker = "",
           right_trunc_marker = "",
           max_name_length = 30,

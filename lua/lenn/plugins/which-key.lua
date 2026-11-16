@@ -1,3 +1,5 @@
+local nf = require("lenn.icons")
+
 return {
   {
     "folke/which-key.nvim",
@@ -15,8 +17,8 @@ return {
       preset = "modern",
       delay = 300,
       icons = {
-        breadcrumb = "»",
-        separator = "➜",
+        breadcrumb = nf.active,
+        separator = nf.arrow_right,
         group = "+",
       },
       win = {
@@ -39,6 +41,7 @@ return {
         { "<leader>f", group = "Search" },
         { "<leader>h", group = "Hunk / Harpoon" },
         { "<leader>l", group = "LSP" },
+        { "<leader>n", group = "Notes" },
         { "<leader>p", group = "Projects" },
         { "<leader>r", group = "Remote (Distant)" },
         { "<leader>t", group = "Terminal" },
