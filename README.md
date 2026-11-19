@@ -1,6 +1,33 @@
-# NvMoon
+<div align="center">
 
-Personal Neovim configuration (neo-tree `v3.x` branch, `lazy.nvim`, catppuccin mocha).
+# 🌙 NvMoon
+
+> A modern, workspace-driven Neovim configuration with AI integration.
+
+[![Neovim](https://img.shields.io/badge/Neovim-0.10+-green?style=for-the-badge&logo=neovim&logoColor=white)](https://neovim.io)
+[![Lua](https://img.shields.io/badge/Lua-5.1-blue?style=for-the-badge&logo=lua&logoColor=white)](https://www.lua.org)
+[![LazyVim](https://img.shields.io/badge/Plugin%20Mgr-lazy.nvim-orange?style=for-the-badge)](https://github.com/folke/lazy.nvim)
+[![Catppuccin](https://img.shields.io/badge/Theme-Catppuccin%20Mocha-pink?style=for-the-badge)](https://github.com/catppuccin/neovim)
+
+</div>
+
+---
+
+## ✨ Preview
+
+<div align="center">
+
+### Full Workspace — All Panels
+
+![Workspace 3 — Full](resources/fullmode.png)
+
+*Agent panels, file explorer, editor buffers, and planner — everything in one view.*
+
+</div>
+
+---
+
+## 🚀 Quick Start
 
 ```sh
 mvim              # open in the current directory
@@ -12,6 +39,26 @@ mvim <file>       # open a file
 
 > When opening with `mvim <dir>`, the neo-tree cursor starts on **line 1 (the root node = the directory)**.
 > Move down with `j` to a file before pressing `<CR>`; on the root node `<CR>` only expands/collapses.
+
+---
+
+## 🖼️ Workspace Gallery
+
+NvMoon features **4 workspace modes** that let you switch the entire layout to match your current focus, similar to pages in DaVinci Resolve. The agent terminal is **preserved across mode switches**.
+
+<div align="center">
+
+| **Agent Mode** | **Edit Mode** |
+|:---:|:---:|
+| Agent panels take full priority with minimal distractions. | Editor-first layout with compact agent reference. |
+| ![Workspace 1 — Agent](resources/agentmode.png) | ![Workspace 2 — Edit](resources/editmode.png) |
+| **Full Mode** | **Plan Mode** |
+| All panels visible — the default workspace. | Dedicated requirements planning with elicitation tab. |
+| ![Workspace 3 — Full](resources/fullmode.png) | ![Workspace 4 — Plan](resources/plannermode.png) |
+
+</div>
+
+Switch workspaces with `space w` or cycle through modes with `space w w`. Current mode is shown in the status line (lualine).
 
 ---
 
@@ -240,28 +287,20 @@ mode indicator to open the mode picker.
 Shows only the agent panels (threads, skills, keymaps, agent) and the file
 explorer. All editor buffers are minimized so the agent work takes full priority.
 
-![Workspace 1 — Agent](resources/agentmode.png)
-
 ### Workspace 2 — Edit
 Editor buffers take priority. The file explorer stays open on the left, and the
 agent panel appears as a split below the explorer. Ideal for coding with a
 compact agent reference in the corner.
 
-![Workspace 2 — Edit](resources/editmode.png)
-
 ### Workspace 3 — Full
 All panels are visible: agent panels on the left, explorer, editor buffers, and
 the planner panel as a horizontal split below the buffers. The default mode.
-
-![Workspace 3 — Full](resources/fullmode.png)
 
 ### Workspace 4 — Plan
 Dedicated to requirements planning. Shows the requirements panel with the
 **Requirements Elicitation** tab (based on Sommerville Ch. 4), the planner
 panel for creating planning documents, and the agent panel for ideas. All editor
 buffers are minimized.
-
-![Workspace 4 — Plan](resources/plannermode.png)
 
 ### Planner Panel
 The planner panel (shown in Plan and Full modes) lets you create planning
