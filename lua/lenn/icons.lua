@@ -49,6 +49,11 @@ local M = {
   amazon_q = "",
   windsurf = "",
   junie = "",
+  -- Workspace modes
+  mode_agent = "",          -- robot/agent
+  mode_edit = "",            -- edit/code
+  mode_full = "",            -- layout/grid
+  mode_plan = "",            -- clipboard/planning
 }
 
 local approved_glyphs = {}

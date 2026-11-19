@@ -270,6 +270,27 @@ return {
               color = mode_color,
               padding = { left = 1, right = 1 },
             },
+            -- Workspace mode indicator
+            {
+              function()
+                local ok, agent_ws = pcall(require, "lenn.agent-workspace")
+                if ok then
+                  local info = agent_ws.get_mode_info()
+                  if info then
+                    return info.icon .. " " .. info.name
+                  end
+                end
+                return ""
+              end,
+              color = { fg = palette.accent, bg = "none" },
+              padding = { left = 1, right = 1 },
+              on_click = function()
+                local ok, agent_ws = pcall(require, "lenn.agent-workspace")
+                if ok then
+                  agent_ws.select_mode()
+                end
+              end,
+            },
             {
               filetype_label,
               color = { fg = palette.dim },

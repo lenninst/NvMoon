@@ -31,6 +31,30 @@ local function open_skill_market()
   require("lenn.agent-workspace").open_skill_market()
 end
 
+local function cycle_workspace_mode()
+  require("lenn.agent-workspace").next_mode()
+end
+
+local function select_workspace_mode()
+  require("lenn.agent-workspace").select_mode()
+end
+
+local function set_workspace_mode_agent()
+  require("lenn.agent-workspace").set_mode("agent")
+end
+
+local function set_workspace_mode_edit()
+  require("lenn.agent-workspace").set_mode("edit")
+end
+
+local function set_workspace_mode_full()
+  require("lenn.agent-workspace").set_mode("full")
+end
+
+local function set_workspace_mode_plan()
+  require("lenn.agent-workspace").set_mode("plan")
+end
+
 return {
   {
     "folke/edgy.nvim",
@@ -73,6 +97,41 @@ return {
           require("edgy").toggle("right")
         end,
         desc = "Explorer: toggle",
+      },
+      -- Workspace modes (DaVinci Resolve-style)
+      {
+        "<leader>w",
+        desc = "Workspace: menu",
+      },
+      {
+        "<leader>w1",
+        set_workspace_mode_agent,
+        desc = "Workspace: 1-Agent mode",
+      },
+      {
+        "<leader>w2",
+        set_workspace_mode_edit,
+        desc = "Workspace: 2-Edit mode",
+      },
+      {
+        "<leader>w3",
+        set_workspace_mode_full,
+        desc = "Workspace: 3-Full mode",
+      },
+      {
+        "<leader>w4",
+        set_workspace_mode_plan,
+        desc = "Workspace: 4-Plan mode",
+      },
+      {
+        "<leader>ww",
+        cycle_workspace_mode,
+        desc = "Workspace: cycle mode",
+      },
+      {
+        "<leader>wws",
+        select_workspace_mode,
+        desc = "Workspace: select mode",
       },
     },
     init = function()

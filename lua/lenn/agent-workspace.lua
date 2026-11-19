@@ -60,6 +60,696 @@ local keymaps_height = 15         -- Help panel fixed height
 -- Track whether panels are currently visible
 local panels_visible = false
 
+-- ─── Workspace Modes ────────────────────────────────────────────────────────
+-- Like DaVinci Resolve pages: each mode controls which panels are visible
+-- and their layout priorities.
+--
+-- Modes:
+--   "agent"  — Only agent panels (threads+skills+keymaps+agent). All buffers
+--              are minimized. Explorer stays available. Panels take full priority.
+--   "edit"   — Explorer + buffers take priority. Agent panel appears inside
+--              the explorer area as a horizontal split below NeoTree.
+--   "full"   — All panels visible: threads+skills+keymaps+agent + explorer.
+--              This is the default complete layout.
+--   "plan"   — Requirements panel takes priority + agent panel for ideas.
+--              Task panel visible. No code buffers focus.
+
+local current_workspace_mode = "full"  -- default mode
+
+local workspace_modes = {
+  agent = {
+    name = "Agent",
+    icon = nf.mode_agent,
+    desc = "Only agent panels + explorer, buffers minimized",
+  },
+  edit = {
+    name = "Edit",
+    icon = nf.mode_edit,
+    desc = "Explorer + buffers priority, agent in explorer split",
+  },
+  full = {
+    name = "Full",
+    icon = nf.mode_full,
+    desc = "All panels visible",
+  },
+  plan = {
+    name = "Plan",
+    icon = nf.mode_plan,
+    desc = "Requirements + tasks + agent for ideas",
+  },
+}
+
+-- Requirements panel window reference (managed by workspace modes)
+local req_win = nil
+local req_buf = nil
+
+-- Planner panel window reference (only shown in "plan" mode)
+local planner_win = nil
+local planner_buf = nil
+
+-- Agent window inside explorer for "edit" mode (agent panel within NeoTree area)
+local agent_explorer_win = nil
+local agent_explorer_buf = nil
+
+-- Minimized editor windows for "agent" mode (buffers hidden, restored on mode switch)
+local minimized_editor_wins = {}
+
+-- Preserve the agent terminal buffer across workspace mode transitions.
+-- When switching modes, the terminal buffer is saved here so the same provider
+-- panel is reused instead of creating a new one.
+local saved_agent_term_buf = nil
+
+-- ─── Mode Switching ─────────────────────────────────────────────────────────
+
+-- Forward declarations for functions defined later in the file
+local hide_panels
+local open_panels
+local has_hidden_windows
+local find_editor_window
+local render_agent_panel
+local is_workspace_panel
+local apply_agent_style
+local apply_neo_tree_style
+
+local function close_agent_in_explorer()
+  if agent_explorer_win and vim.api.nvim_win_is_valid(agent_explorer_win) then
+    -- Save the terminal buffer so it can be restored in the new workspace panel
+    local buf = vim.api.nvim_win_get_buf(agent_explorer_win)
+    pcall(vim.api.nvim_win_close, agent_explorer_win, true)
+    agent_explorer_win = nil
+    if buf and vim.api.nvim_buf_is_valid(buf) and vim.b[buf].agent_panel then
+      saved_agent_term_buf = buf
+    else
+      agent_explorer_buf = nil
+    end
+  else
+    agent_explorer_buf = nil
+  end
+end
+
+-- Find the NeoTree window if it's open
+local function find_neo_tree_win()
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    local bt = vim.b[buf] and vim.b[buf].buftype or ""
+    if bt == "neo-tree" then
+      return win
+    end
+  end
+  return nil
+end
+
+local function open_agent_in_explorer()
+  -- Don't close if already open and valid
+  if agent_explorer_win and vim.api.nvim_win_is_valid(agent_explorer_win) then
+    return
+  end
+  close_agent_in_explorer()
+
+  -- Open NeoTree if not already open
+  local neo_tree_win = find_neo_tree_win()
+  if not neo_tree_win then
+    pcall(vim.cmd.Neotree, { args = { "focus" } })
+    -- Give NeoTree time to open
+    vim.schedule(function()
+      neo_tree_win = find_neo_tree_win()
+      if not neo_tree_win then
+        return
+      end
+      create_agent_split_in_explorer(neo_tree_win)
+    end)
+    return
+  end
+
+  create_agent_split_in_explorer(neo_tree_win)
+end
+
+local function create_agent_split_in_explorer(neo_tree_win)
+  if not neo_tree_win or not vim.api.nvim_win_is_valid(neo_tree_win) then
+    return
+  end
+
+  -- Get the NeoTree window dimensions
+  local width = vim.api.nvim_win_get_width(neo_tree_win)
+  local neo_height = vim.api.nvim_win_get_height(neo_tree_win)
+
+  -- Get NeoTree position in the editor
+  -- For Edgy windows, nvim_win_get_config returns {relative="editor", col, row}
+  local config = vim.api.nvim_win_get_config(neo_tree_win)
+  local col = config.col or 0
+  local row = config.row or 0
+
+  -- Calculate the position below NeoTree
+  local agent_height = 18
+  local new_row = row + neo_height
+
+  -- Set up the agent buffer
+  agent_explorer_buf = M.ensure_agent_buf()
+
+  -- Create a window below NeoTree aligned with it
+  -- Use relative="editor" to position it precisely
+  agent_explorer_win = vim.api.nvim_open_win(agent_explorer_buf, false, {
+    relative = "editor",
+    row = new_row,
+    col = col,
+    width = width,
+    height = agent_height,
+    style = "minimal",
+    border = "none",
+    noautocmd = true,
+  })
+
+  -- Style the window to match NeoTree
+  vim.wo[agent_explorer_win].signcolumn = "no"
+  vim.wo[agent_explorer_win].foldcolumn = "0"
+  vim.wo[agent_explorer_win].number = false
+  vim.wo[agent_explorer_win].relativenumber = false
+  vim.wo[agent_explorer_win].cursorline = true
+  vim.wo[agent_explorer_win].winfixwidth = true
+  apply_neo_tree_style(agent_explorer_win, " Agent ")
+
+  -- Render the agent panel
+  vim.schedule(function()
+    if agent_explorer_win and vim.api.nvim_win_is_valid(agent_explorer_win) then
+      render_agent_panel()
+    end
+  end)
+
+  -- Add keymap to close the agent panel in explorer
+  vim.keymap.set("n", "q", function()
+    close_agent_in_explorer()
+  end, { buffer = agent_explorer_buf, desc = "Close agent panel" })
+
+  vim.keymap.set("n", "<Esc>", function()
+    close_agent_in_explorer()
+  end, { buffer = agent_explorer_buf, desc = "Close agent panel" })
+end
+
+local function close_requirements_panel()
+  if req_win and vim.api.nvim_win_is_valid(req_win) then
+    pcall(vim.api.nvim_win_close, req_win, true)
+    req_win = nil
+  end
+  -- Don't delete req_buf if it was created by requirements-panel module
+end
+
+-- Close the planner panel (only shown in "plan" mode)
+local function close_planner_panel()
+  if planner_win and vim.api.nvim_win_is_valid(planner_win) then
+    pcall(vim.api.nvim_win_close, planner_win, true)
+    planner_win = nil
+  end
+  if planner_buf and vim.api.nvim_buf_is_valid(planner_buf) then
+    pcall(vim.api.nvim_buf_delete, planner_buf, { force = true })
+    planner_buf = nil
+  end
+end
+
+-- Create the planner panel buffer content
+local function create_planner_buf()
+  if planner_buf and vim.api.nvim_buf_is_valid(planner_buf) then
+    return planner_buf
+  end
+
+  planner_buf = vim.api.nvim_create_buf(false, true)
+  local lines = {
+    "  ╔══════════════════════════════════════════════════════════╗",
+    "  ║                    PLANNER                               ║",
+    "  ║  Create a planning document for your project             ║",
+    "  ╚══════════════════════════════════════════════════════════╝",
+    "",
+    "  Select an option:",
+    "    1. Create planner in Markdown format (.md)",
+    "    2. Create planner in Norg format (.norg)",
+    "    q. Close panel",
+    "",
+    "  Keymaps:",
+    "    <CR> on line · Execute selection",
+    "    q · Close panel",
+  }
+  vim.api.nvim_buf_set_lines(planner_buf, 0, -1, true, lines)
+  vim.api.nvim_buf_set_option(planner_buf, "modifiable", false)
+  vim.api.nvim_buf_set_option(planner_buf, "buftype", "nofile")
+  vim.api.nvim_buf_set_option(planner_buf, "bufhidden", "wipe")
+  vim.api.nvim_buf_set_option(planner_buf, "swapfile", false)
+
+  -- Set up keymaps for the planner panel
+  vim.keymap.set("n", "<CR>", function()
+    local line = vim.api.nvim_get_current_line()
+    if line:find("1%.") then
+      create_planner_file("md")
+    elseif line:find("2%.") then
+      create_planner_file("norg")
+    end
+  end, { buffer = planner_buf, silent = true })
+
+  vim.keymap.set("n", "q", function()
+    close_planner_panel()
+  end, { buffer = planner_buf, silent = true })
+
+  return planner_buf
+end
+
+-- Create a planner file in the specified format
+local function create_planner_file(format)
+  local project_name = vim.fn.input("Project name [project]: ")
+  if not project_name or project_name == "" then project_name = "project" end
+  project_name = vim.fn.trim(project_name)
+
+  local planner_dir = vim.fn.expand("~/requirements/planners")
+  if vim.fn.isdirectory(planner_dir) == 0 then
+    vim.fn.mkdir(planner_dir, "p")
+  end
+
+  local filename = project_name .. "-planner"
+  local filepath = planner_dir .. "/" .. filename .. "." .. format
+
+  if format == "norg" then
+    local content = {
+      "= " .. project_name .. " Planner",
+      "",
+      "* Status:: draft",
+      "* Created:: " .. os.date("%Y-%m-%d"),
+      "",
+      "== Project Overview",
+      "",
+      "== Goals",
+      "",
+      "== Scope",
+      "",
+      "== Milestones",
+      "",
+      "== Risks",
+      "",
+      "== Resources",
+      "",
+      "== Timeline",
+    }
+    vim.fn.writefile(content, filepath)
+  else
+    local content = {
+      "# " .. project_name .. " Planner",
+      "",
+      "## Project Overview",
+      "",
+      "## Goals",
+      "",
+      "## Scope",
+      "",
+      "## Milestones",
+      "",
+      "## Risks",
+      "",
+      "## Resources",
+      "",
+      "## Timeline",
+    }
+    vim.fn.writefile(content, filepath)
+  end
+
+  vim.notify("Created planner: " .. filepath, vim.log.levels.INFO)
+  -- Open the created file
+  vim.cmd("edit " .. filepath)
+end
+
+-- Open the planner panel
+-- When horizontal=true (full mode), open as a horizontal split below buffers.
+-- When horizontal=false (plan mode), open as a vertical split on the side.
+local function open_planner_panel(horizontal)
+  if planner_win and vim.api.nvim_win_is_valid(planner_win) then
+    return
+  end
+
+  local buf = create_planner_buf()
+  local focus_win = vim.api.nvim_get_current_win()
+
+  -- Find a base window for the split
+  local base_win = nil
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if not is_workspace_panel(win) and win ~= req_win then
+      base_win = win
+      break
+    end
+  end
+  if not base_win then
+    base_win = focus_win
+  end
+
+  vim.api.nvim_set_current_win(base_win)
+  if horizontal then
+    vim.cmd("rightbelow split")
+    planner_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(planner_win, buf)
+    vim.api.nvim_win_set_height(planner_win, 15)
+    vim.wo[planner_win].winfixheight = true
+  else
+    vim.cmd("rightbelow vsplit")
+    planner_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(planner_win, buf)
+    vim.api.nvim_win_set_width(planner_win, 40)
+    vim.wo[planner_win].winfixwidth = true
+  end
+  vim.wo[planner_win].number = false
+  vim.wo[planner_win].relativenumber = false
+  vim.wo[planner_win].signcolumn = "no"
+
+  -- Restore focus
+  if vim.api.nvim_win_is_valid(focus_win) then
+    vim.api.nvim_set_current_win(focus_win)
+  end
+end
+
+local function open_requirements_panel()
+  -- Use the requirements-panel module if available
+  local ok, rp = pcall(require, "lenn.requirements-panel")
+  if ok then
+    -- Check if there are any requirement files; if not, offer to create a default one
+    local req_dir = vim.fn.expand("~/requirements")
+    if vim.fn.isdirectory(req_dir) == 0 then
+      local answer = vim.fn.input("No requirements directory found. Create a default requirements document? (y/n): ")
+      if answer:lower() == "y" then
+        vim.fn.mkdir(req_dir, "p")
+        local format = vim.fn.input("Document format (md/norg) [md]: ")
+        if not format or format == "" then format = "md" end
+        format = format:lower()
+        if format ~= "md" and format ~= "norg" then format = "md" end
+
+        local filename = "requirements"
+        local filepath = req_dir .. "/" .. filename .. "." .. format
+
+        if format == "norg" then
+          local content = {
+            "= Requirements",
+            "",
+            "* Status:: draft",
+            "",
+            "== Functional Requirements",
+            "",
+            "== Non-Functional Requirements",
+            "",
+            "== Actors",
+            "",
+            "== Acceptance Criteria",
+            "",
+            "== References",
+          }
+          vim.fn.writefile(content, filepath)
+        else
+          local content = {
+            "# Requirements",
+            "",
+            "## Functional Requirements (RF)",
+            "",
+            "## Non-Functional Requirements (RNF)",
+            "",
+            "## Actors",
+            "",
+            "## Acceptance Criteria",
+            "",
+            "## References",
+          }
+          vim.fn.writefile(content, filepath)
+        end
+        vim.notify("Created default requirements: " .. filepath, vim.log.levels.INFO)
+      end
+    end
+
+    -- Open in split mode on the right side
+    pcall(function()
+      rp.open({ mode = "split" })
+      -- Track the window
+      req_win = rp.get_win()
+      req_buf = rp.get_buf()
+    end)
+  end
+end
+
+-- Restore the saved agent terminal buffer into the current agent window.
+-- Called after opening panels in a new workspace mode so the same provider
+-- panel is reused instead of creating a new one.
+local function restore_agent_term_buf()
+  if not saved_agent_term_buf or not vim.api.nvim_buf_is_valid(saved_agent_term_buf) then
+    return
+  end
+  -- Try to restore in agent_win first
+  if agent_win and vim.api.nvim_win_is_valid(agent_win) then
+    vim.api.nvim_win_set_buf(agent_win, saved_agent_term_buf)
+    saved_agent_term_buf = nil
+    return
+  end
+  -- Fallback to agent_explorer_win
+  if agent_explorer_win and vim.api.nvim_win_is_valid(agent_explorer_win) then
+    vim.api.nvim_win_set_buf(agent_explorer_win, saved_agent_term_buf)
+    saved_agent_term_buf = nil
+    return
+  end
+end
+
+-- Move a running agent terminal from agent_win to the edit mode explorer split.
+-- This is called when switching from "agent"/"full" mode (where agents run
+-- inside agent_win) to "edit" mode (where the agent appears in the explorer).
+local function move_agent_win_to_explorer()
+  if not agent_explorer_win or not vim.api.nvim_win_is_valid(agent_explorer_win) then
+    return
+  end
+
+  -- Look for a running direct agent session whose buffer is still valid
+  for i = #direct_agent_sessions, 1, -1 do
+    local s = direct_agent_sessions[i]
+    if s.running and s.bufnr and vim.api.nvim_buf_is_valid(s.bufnr) then
+      -- Place the terminal buffer in the explorer split window
+      vim.api.nvim_win_set_buf(agent_explorer_win, s.bufnr)
+      current_term = s
+      return
+    end
+  end
+
+  -- Also check if agent_win still has a terminal buffer (agent_panel marker)
+  if agent_win and vim.api.nvim_win_is_valid(agent_win) then
+    local buf = vim.api.nvim_win_get_buf(agent_win)
+    if buf and vim.api.nvim_buf_is_valid(buf) and vim.b[buf].agent_panel then
+      vim.api.nvim_win_set_buf(agent_explorer_win, buf)
+      return
+    end
+  end
+end
+
+-- Move any running ToggleTerm agent terminal into the agent panel window.
+-- This is called when switching from "edit" mode (where agents run as ToggleTerm)
+-- to "agent"/"full" mode (where agents run inside the agent_win panel).
+local function move_toggleterm_to_agent_win()
+  if not agent_win or not vim.api.nvim_win_is_valid(agent_win) then
+    return
+  end
+
+  -- If agent_win already has a terminal buffer (restored by restore_agent_term_buf),
+  -- do not look for ToggleTerm — the agent is already in place.
+  local current_buf = vim.api.nvim_win_get_buf(agent_win)
+  if current_buf and vim.api.nvim_buf_is_valid(current_buf) and vim.b[current_buf].agent_panel then
+    return
+  end
+
+  local Terminal = require("toggleterm.terminal")
+  local moved = false
+  for _, t in ipairs(Terminal.get_all(true)) do
+    if t:is_open() and t.bufnr and vim.api.nvim_buf_is_valid(t.bufnr) then
+      local is_agent = vim.b[t.bufnr] and vim.b[t.bufnr].agent_panel
+      if is_agent then
+        -- Close the ToggleTerm window (hide it)
+        if t.window and vim.api.nvim_win_is_valid(t.window) then
+          pcall(vim.api.nvim_win_hide, t.window)
+        end
+        -- Place the terminal buffer into the agent panel window
+        vim.api.nvim_win_set_buf(agent_win, t.bufnr)
+        current_term = t
+        vim.api.nvim_set_current_win(agent_win)
+        vim.cmd.startinsert()
+        moved = true
+        -- Only move the first matching terminal
+        break
+      end
+    end
+  end
+  if moved then
+    render_agent_tabs()
+    render_agent_panel()
+  end
+end
+
+-- Minimize all editor buffer windows (hide them) so only agent panels and explorer are visible.
+-- Stores the hidden windows in minimized_editor_wins for later restoration.
+local function minimize_editor_buffers()
+  minimized_editor_wins = {}
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local config = vim.api.nvim_win_get_config(win)
+    -- Skip floating windows
+    if config.relative ~= "" then
+      goto continue
+    end
+    -- Skip workspace panels
+    if is_workspace_panel(win) then
+      goto continue
+    end
+    -- Skip NeoTree window
+    local buf = vim.api.nvim_win_get_buf(win)
+    local bt = vim.b[buf] and vim.b[buf].buftype or ""
+    if bt == "neo-tree" then
+      goto continue
+    end
+    -- Hide this editor window
+    table.insert(minimized_editor_wins, win)
+    pcall(vim.api.nvim_win_hide, win)
+    ::continue::
+  end
+end
+
+-- Restore previously minimized editor buffer windows.
+local function restore_editor_buffers()
+  for _, win in ipairs(minimized_editor_wins) do
+    if win and vim.api.nvim_win_is_valid(win) then
+      -- Find a buffer for this window
+      local buf = vim.api.nvim_win_get_buf(win)
+      if buf and vim.api.nvim_buf_is_valid(buf) then
+        -- Show the window by making it visible again
+        vim.api.nvim_win_set_buf(win, buf)
+      end
+    end
+  end
+  minimized_editor_wins = {}
+end
+
+-- Apply a workspace mode layout
+local function apply_workspace_mode(mode, opts)
+  opts = opts or {}
+  local skip_notify = opts.skip_notify or false
+
+  if mode == current_workspace_mode then
+    return
+  end
+
+  -- Clean up previous mode
+  close_agent_in_explorer()
+  close_requirements_panel()
+
+  -- Hide all workspace panels first
+  if panels_visible then
+    hide_panels()
+  end
+
+  current_workspace_mode = mode
+
+  if mode == "agent" then
+    -- Show only agent panels (threads+skills+keymaps+agent), minimize all buffers
+    -- Ensure explorer (NeoTree) is open
+    pcall(function()
+      local ok, edgy = pcall(require, "edgy")
+      if ok then
+        edgy.toggle({ location = "left" })
+      end
+    end)
+    open_panels()
+    -- Restore the saved agent terminal buffer into the new panel
+    restore_agent_term_buf()
+    -- If a ToggleTerm agent terminal was running in edit mode, move it to the panel
+    move_toggleterm_to_agent_win()
+    -- Minimize all editor buffer windows
+    minimize_editor_buffers()
+
+  elseif mode == "edit" then
+    -- Restore minimized buffers (if coming from agent/plan mode)
+    if #minimized_editor_wins > 0 then
+      restore_editor_buffers()
+    end
+    -- Hide agent panels, show agent in explorer split
+    -- Ensure panels are hidden
+    if has_hidden_windows() then
+      panels_visible = false
+    end
+    open_agent_in_explorer()
+    -- Restore the saved agent terminal buffer into the explorer split
+    restore_agent_term_buf()
+    -- If an agent terminal was running in agent_win, move it to the explorer split
+    move_agent_win_to_explorer()
+
+  elseif mode == "full" then
+    -- Restore minimized buffers (if coming from agent/plan mode)
+    if #minimized_editor_wins > 0 then
+      restore_editor_buffers()
+    end
+    -- Show all panels
+    open_panels()
+    -- Restore the saved agent terminal buffer into the new panel
+    restore_agent_term_buf()
+    -- If a ToggleTerm agent terminal was running in edit mode, move it to the panel
+    move_toggleterm_to_agent_win()
+    -- Show planner panel below buffers (horizontal split)
+    open_planner_panel(true)
+
+  elseif mode == "plan" then
+    -- Hide all editor buffers; only show requirements, planner, and agent panels
+    -- Save the agent terminal buffer before creating new panels, so the same
+    -- provider panel is reused instead of creating a new one
+    if agent_win and vim.api.nvim_win_is_valid(agent_win) then
+      local buf = vim.api.nvim_win_get_buf(agent_win)
+      if buf and vim.api.nvim_buf_is_valid(buf) and vim.b[buf].agent_panel then
+        saved_agent_term_buf = buf
+      end
+    end
+    -- Hide main panels first
+    if has_hidden_windows() then
+      panels_visible = false
+    end
+    -- Open requirements panel
+    open_requirements_panel()
+    -- Open planner panel
+    open_planner_panel()
+    -- Minimize all editor buffer windows
+    minimize_editor_buffers()
+    -- Open agent as a side panel (just the agent window)
+    -- We'll create a minimal agent panel
+    local focus_win = vim.api.nvim_get_current_win()
+    local leftmost_win = nil
+    local leftmost_col = 999999
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      local config = vim.api.nvim_win_get_config(win)
+      if config.relative ~= "" then goto continue end
+      if is_workspace_panel(win) then goto continue end
+      if win == req_win then goto continue end
+      local col = config.col or 0
+      if col < leftmost_col then
+        leftmost_col = col
+        leftmost_win = win
+      end
+      ::continue::
+    end
+
+    local base_win = leftmost_win or find_editor_window(focus_win) or focus_win
+    vim.api.nvim_set_current_win(base_win)
+    vim.cmd("leftabove vsplit")
+    agent_win = vim.api.nvim_get_current_win()
+    local buf_a = M.ensure_agent_buf()
+    vim.api.nvim_win_set_buf(agent_win, buf_a)
+    vim.api.nvim_win_set_width(agent_win, agent_width)
+    vim.wo[agent_win].winfixwidth = true
+    apply_agent_style(agent_win)
+    -- Restore the saved agent terminal buffer into the plan panel
+    restore_agent_term_buf()
+    render_agent_panel()
+
+    if vim.api.nvim_win_is_valid(focus_win) then
+      vim.api.nvim_set_current_win(focus_win)
+    end
+  end
+
+  if not skip_notify then
+    local mode_info = workspace_modes[mode]
+    local msg = string.format("Workspace mode: %s %s", mode_info.icon, mode_info.name)
+    vim.notify(msg, vim.log.levels.INFO)
+  end
+end
+
+-- ─── End Workspace Modes ────────────────────────────────────────────────────
+
 -- Provider definitions — loaded from agent-market dynamically
 local market = require("lenn.agent-market")
 local providers = market.get_providers()
@@ -219,7 +909,7 @@ end
 
 -- Apply neo-tree-like visual style to a window: transparent background,
 -- full-width cursor line, no signcolumn/foldcolumn, relative numbers off.
-local function apply_neo_tree_style(win, title)
+apply_neo_tree_style = function(win, title)
   if not win or not vim.api.nvim_win_is_valid(win) then return end
   vim.wo[win].cursorline = true
   vim.wo[win].cursorlineopt = "line"
@@ -234,7 +924,7 @@ local function apply_neo_tree_style(win, title)
   refresh_focused_borders()
 end
 
-local function apply_agent_style(win)
+apply_agent_style = function(win)
   if not win or not vim.api.nvim_win_is_valid(win) then return end
   vim.wo[win].cursorline = true
   vim.wo[win].cursorlineopt = "line"
@@ -284,6 +974,9 @@ local function resize_panels()
       local skills_h = math.max(1, math.floor(total_height * skills_height_ratio))
       local keymaps_h = math.min(keymaps_height, total_height - skills_h - 1)
       keymaps_h = math.max(1, keymaps_h)
+      local threads_h = total_height - skills_h - keymaps_h
+      threads_h = math.max(1, threads_h)
+      pcall(vim.api.nvim_win_set_height, threads_win, threads_h)
       pcall(vim.api.nvim_win_set_height, skills_win, skills_h)
       pcall(vim.api.nvim_win_set_height, keymaps_win, keymaps_h)
     end
@@ -292,8 +985,8 @@ end
 
 local last_editor_win = nil
 
-  local function is_workspace_panel(win)
-  return win == threads_win or win == skills_win or win == keymaps_win or win == agent_win
+is_workspace_panel = function(win)
+  return win == threads_win or win == skills_win or win == keymaps_win or win == agent_win or win == req_win or win == agent_explorer_win or win == planner_win
 end
 
 local function is_editor_window(win)
@@ -308,7 +1001,7 @@ local function is_editor_window(win)
   return vim.bo[buf].buftype == "" and vim.bo[buf].filetype ~= "neo-tree"
 end
 
-local function find_editor_window(preferred)
+find_editor_window = function(preferred)
   if is_editor_window(last_editor_win) then return last_editor_win end
   if is_editor_window(preferred) then return preferred end
   for _, win in ipairs(vim.api.nvim_list_wins()) do
@@ -1894,8 +2587,10 @@ local function dispatch_task()
         thread = { provider = provider.name, cwd = entry.cwd, started_at = os.time() },
       })
       refresh_tasks(entry.cwd)
-      -- Ensure all panels are open so the agent terminal appears in the agent window
-      if not panels_visible then
+      -- Switch to full mode so the agent terminal appears in the proper panel
+      if current_workspace_mode ~= "full" then
+        M.set_mode("full")
+      elseif not panels_visible then
         open_panels()
       end
       collect_threads(function(previous_threads)
@@ -2875,7 +3570,7 @@ render_agent_tabs = function()
   vim.wo[agent_win].winbar = table.concat(items, "  ") .. "%="
 end
 
-local function render_agent_panel()
+render_agent_panel = function()
   if not agent_buf or not vim.api.nvim_buf_is_valid(agent_buf) then return end
   render_agent_tabs()
   local lines
@@ -3190,7 +3885,47 @@ local function restore_agent_panel()
   render_agent_panel()
 end
 
+-- Close any running agent terminal to prevent two provider panels at the same time.
+-- Checks direct_agent_sessions, current_term (ToggleTerm), and agent_explorer_win.
+local function close_running_agent()
+  -- Close direct agent sessions in agent_win
+  for i = #direct_agent_sessions, 1, -1 do
+    local s = direct_agent_sessions[i]
+    if s.running and s.job then
+      pcall(vim.api.nvim_chan_send, s.job, "\x04")
+      s.running = false
+    end
+    if s.bufnr and vim.api.nvim_buf_is_valid(s.bufnr) then
+      -- If the buffer is displayed in a window, restore the agent panel buffer
+      for _, win in ipairs(vim.api.nvim_list_wins()) do
+        if vim.api.nvim_win_get_buf(win) == s.bufnr then
+          if win == agent_win and vim.api.nvim_win_is_valid(agent_win) then
+            local panel_buf = M.ensure_agent_buf()
+            vim.api.nvim_win_set_buf(win, panel_buf)
+          elseif win == agent_explorer_win and vim.api.nvim_win_is_valid(agent_explorer_win) then
+            local panel_buf = M.ensure_agent_buf()
+            vim.api.nvim_win_set_buf(win, panel_buf)
+          end
+        end
+      end
+      pcall(vim.api.nvim_buf_delete, s.bufnr, { force = true })
+    end
+  end
+  direct_agent_sessions = {}
+
+  -- Close ToggleTerm agent terminal
+  if current_term and current_term.close then
+    pcall(function() current_term:close() end)
+  elseif current_term and current_term.job then
+    pcall(vim.api.nvim_chan_send, current_term.job, "\x04")
+  end
+  current_term = nil
+end
+
 function M.launch_provider(provider_name, thread_id, project_cwd, force_new, initial_prompt, session_context)
+  -- Never allow two provider panels at the same time
+  close_running_agent()
+
   current_provider = provider_name
   current_thread_id = thread_id
   project_cwd = project_cwd or vim.fn.getcwd()
@@ -3343,6 +4078,105 @@ function M.launch_provider(provider_name, thread_id, project_cwd, force_new, ini
     return
   end
 
+  -- In edit mode, try to use agent_explorer_win if available
+  if agent_explorer_win and vim.api.nvim_win_is_valid(agent_explorer_win) then
+    -- Open the terminal directly in the agent explorer window
+    vim.api.nvim_set_current_win(agent_explorer_win)
+    local term_buf = vim.api.nvim_create_buf(false, true)
+    vim.b[term_buf].agent_panel = true
+    vim.b[term_buf].agent_provider = provider_name
+    vim.b[term_buf].agent_project_cwd = project_cwd
+    vim.api.nvim_win_set_buf(agent_explorer_win, term_buf)
+
+    local shell = vim.o.shell or "bash"
+    local shell_arg = vim.o.shellcmdflag or "-c"
+
+    local session = {
+      name = provider_name .. " · " .. project_name(project_cwd),
+      provider = provider_name,
+      cwd = project_cwd,
+      thread_id = thread_id,
+      task_id = session_context and session_context.task_id,
+      task_title = session_context and session_context.task_title,
+      change_snapshot = session_context and session_context.change_snapshot,
+      bufnr = term_buf,
+      started_at = os.time(),
+      running = true,
+      kind = "direct",
+    }
+    session.tab_id = (session_context and session_context.tab_id)
+      or ("session:" .. tostring(term_buf))
+    vim.b[term_buf].agent_thread_id = thread_id
+    vim.b[term_buf].agent_task_id = session.task_id
+    vim.b[term_buf].agent_task_title = session.task_title
+    local job = vim.fn.termopen({ shell, shell_arg, cmd }, {
+      cwd = project_cwd,
+      on_exit = function(_, code)
+        session.running = false
+        session.exit_code = code
+        vim.schedule(function()
+          if current_term == session then
+            if agent_explorer_win and vim.api.nvim_win_is_valid(agent_explorer_win)
+              and vim.api.nvim_win_get_buf(agent_explorer_win) == term_buf then
+              pcall(vim.cmd.stopinsert)
+              apply_neo_tree_style(agent_explorer_win)
+            end
+            render_agent_tabs()
+          else
+            render_agent_tabs()
+          end
+          open_task_changes(session)
+        end)
+      end,
+    })
+
+    if not job then
+      restore_agent_panel()
+      return
+    end
+
+    session.job = job
+    table.insert(direct_agent_sessions, session)
+    current_term = session
+    selected_agent_tab = session.tab_id
+    render_agent_tabs()
+
+    vim.keymap.set("t", "<C-\\>", function()
+      if job then
+        vim.api.nvim_chan_send(job, "\x04")
+      end
+    end, { buffer = term_buf, desc = "Exit terminal" })
+
+    vim.keymap.set("t", "<C-n>", function()
+      if job then
+        vim.api.nvim_chan_send(job, "\x04")
+      end
+      vim.schedule(M.new_session)
+    end, { buffer = term_buf, desc = "New session" })
+    vim.keymap.set("t", "<C-g>", show_agent_panel, { buffer = term_buf, desc = "Show running agents" })
+    vim.keymap.set("t", "<C-Tab>", function() cycle_agent_tab(1) end,
+      { buffer = term_buf, desc = "Next agent tab" })
+    vim.keymap.set("t", "<C-S-Tab>", function() cycle_agent_tab(-1) end,
+      { buffer = term_buf, desc = "Previous agent tab" })
+    vim.keymap.set("t", "<Tab>", function() cycle_agent_tab(1) end,
+      { buffer = term_buf, desc = "Next agent tab" })
+    vim.keymap.set("t", "<S-Tab>", function() cycle_agent_tab(-1) end,
+      { buffer = term_buf, desc = "Previous agent tab" })
+    install_agent_tab_number_maps(term_buf, "t")
+    vim.keymap.set("n", "<Tab>", function() cycle_agent_tab(1) end,
+      { buffer = term_buf, desc = "Next agent tab" })
+    vim.keymap.set("n", "<S-Tab>", function() cycle_agent_tab(-1) end,
+      { buffer = term_buf, desc = "Previous agent tab" })
+    install_agent_tab_number_maps(term_buf, "n")
+
+    vim.api.nvim_set_current_win(agent_explorer_win)
+    vim.cmd.startinsert()
+    vim.schedule(function()
+      if visible_window(agent_explorer_win) then apply_neo_tree_style(agent_explorer_win) end
+    end)
+    return
+  end
+
   -- Fallback: use ToggleTerm if no agent window is open
   local display_name = provider_name .. (thread_id and " Thread" or " Session")
     .. " · " .. project_name(project_cwd)
@@ -3378,58 +4212,65 @@ function M.launch_provider(provider_name, thread_id, project_cwd, force_new, ini
   })
 
   current_term:open()
-  vim.b[current_term.bufnr].agent_panel = true
-  vim.b[current_term.bufnr].agent_provider = provider_name
-  vim.b[current_term.bufnr].agent_project_cwd = project_cwd
-  current_term.task_id = session_context and session_context.task_id
-  current_term.task_title = session_context and session_context.task_title
-  current_term.change_snapshot = session_context and session_context.change_snapshot
-  current_term.tab_id = (session_context and session_context.tab_id) or ("session:" .. tostring(current_term.bufnr))
-  vim.b[current_term.bufnr].agent_thread_id = thread_id
-  vim.b[current_term.bufnr].agent_task_id = current_term.task_id
-  vim.b[current_term.bufnr].agent_task_title = current_term.task_title
-  selected_agent_tab = current_term.tab_id
-  if current_term.task_id and current_term.change_snapshot then
-    local review_context = { cwd = project_cwd, change_snapshot = current_term.change_snapshot }
-    vim.api.nvim_create_autocmd("TermClose", {
-      buffer = current_term.bufnr,
-      once = true,
-      callback = function()
-        vim.schedule(function() open_task_changes(review_context) end)
-      end,
+  vim.schedule(function()
+    local bufnr = current_term.bufnr
+    if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+
+    vim.b[bufnr].agent_panel = true
+    vim.b[bufnr].agent_provider = provider_name
+    vim.b[bufnr].agent_project_cwd = project_cwd
+    current_term.task_id = session_context and session_context.task_id
+    current_term.task_title = session_context and session_context.task_title
+    current_term.change_snapshot = session_context and session_context.change_snapshot
+    current_term.tab_id = (session_context and session_context.tab_id) or ("session:" .. tostring(bufnr))
+    vim.b[bufnr].agent_thread_id = thread_id
+    vim.b[bufnr].agent_task_id = current_term.task_id
+    vim.b[bufnr].agent_task_title = current_term.task_title
+    selected_agent_tab = current_term.tab_id
+    if current_term.task_id and current_term.change_snapshot then
+      local review_context = { cwd = project_cwd, change_snapshot = current_term.change_snapshot }
+      vim.api.nvim_create_autocmd("TermClose", {
+        buffer = bufnr,
+        once = true,
+        callback = function()
+          vim.schedule(function() open_task_changes(review_context) end)
+        end,
+      })
+    end
+
+    vim.keymap.set("t", "<C-n>", M.new_session, {
+      buffer = bufnr,
+      desc = "Agents: new session",
     })
-  end
+    vim.keymap.set("t", "<C-g>", show_agent_panel, {
+      buffer = bufnr,
+      desc = "Show running agents",
+    })
+    vim.keymap.set("t", "<C-Tab>", function() cycle_agent_tab(1) end, {
+      buffer = bufnr, desc = "Next agent tab",
+    })
+    vim.keymap.set("t", "<C-S-Tab>", function() cycle_agent_tab(-1) end, {
+      buffer = bufnr, desc = "Previous agent tab",
+    })
+    vim.keymap.set("t", "<Tab>", function() cycle_agent_tab(1) end, {
+      buffer = bufnr, desc = "Next agent tab",
+    })
+    vim.keymap.set("t", "<S-Tab>", function() cycle_agent_tab(-1) end, {
+      buffer = bufnr, desc = "Previous agent tab",
+    })
+    install_agent_tab_number_maps(bufnr, "t")
+    vim.keymap.set("n", "<Tab>", function() cycle_agent_tab(1) end,
+      { buffer = bufnr, desc = "Next agent tab" })
+    vim.keymap.set("n", "<S-Tab>", function() cycle_agent_tab(-1) end,
+      { buffer = bufnr, desc = "Previous agent tab" })
+    install_agent_tab_number_maps(bufnr, "n")
 
-  vim.keymap.set("t", "<C-n>", M.new_session, {
-    buffer = current_term.bufnr,
-    desc = "Agents: new session",
-  })
-  vim.keymap.set("t", "<C-g>", show_agent_panel, {
-    buffer = current_term.bufnr,
-    desc = "Show running agents",
-  })
-  vim.keymap.set("t", "<C-Tab>", function() cycle_agent_tab(1) end, {
-    buffer = current_term.bufnr, desc = "Next agent tab",
-  })
-  vim.keymap.set("t", "<C-S-Tab>", function() cycle_agent_tab(-1) end, {
-    buffer = current_term.bufnr, desc = "Previous agent tab",
-  })
-  vim.keymap.set("t", "<Tab>", function() cycle_agent_tab(1) end, {
-    buffer = current_term.bufnr, desc = "Next agent tab",
-  })
-  vim.keymap.set("t", "<S-Tab>", function() cycle_agent_tab(-1) end, {
-    buffer = current_term.bufnr, desc = "Previous agent tab",
-  })
-  install_agent_tab_number_maps(current_term.bufnr, "t")
-  vim.keymap.set("n", "<Tab>", function() cycle_agent_tab(1) end,
-    { buffer = current_term.bufnr, desc = "Next agent tab" })
-  vim.keymap.set("n", "<S-Tab>", function() cycle_agent_tab(-1) end,
-    { buffer = current_term.bufnr, desc = "Previous agent tab" })
-  install_agent_tab_number_maps(current_term.bufnr, "n")
+    render_agent_tabs()
 
-  render_agent_tabs()
-
-  render_agent_panel()
+    render_agent_panel()
+  end)
 end
 
 -- ─── Public API ─────────────────────────────────────────────────────────────
@@ -3441,23 +4282,41 @@ local function is_open()
   return panels_visible
 end
 
--- Hide our panels (preserves windows, buffers, and terminal jobs)
-local function hide_panels()
-  local hidden = false
-  for _, win_id in ipairs({ threads_win, skills_win, keymaps_win, agent_win }) do
-    if win_id and vim.api.nvim_win_is_valid(win_id) then
-      -- Use hide to keep the window and buffer alive but invisible
-      pcall(vim.api.nvim_win_hide, win_id)
-      hidden = true
+-- Hide our panels by closing windows and resetting references.
+-- This ensures open_panels() creates fresh panels instead of trying to
+-- restore hidden windows (nvim_win_set_buf does not make hidden windows visible).
+-- Preserves the agent terminal buffer so it can be restored in the new panel.
+hide_panels = function()
+  -- Save the agent terminal buffer before closing windows
+  if agent_win and vim.api.nvim_win_is_valid(agent_win) then
+    local buf = vim.api.nvim_win_get_buf(agent_win)
+    if buf and vim.api.nvim_buf_is_valid(buf) and vim.b[buf].agent_panel then
+      saved_agent_term_buf = buf
     end
   end
-  if hidden then
-    panels_visible = false
+
+  -- Close all panel windows
+  for _, win_id in ipairs({ threads_win, skills_win, keymaps_win, agent_win }) do
+    if win_id and vim.api.nvim_win_is_valid(win_id) then
+      pcall(vim.api.nvim_win_close, win_id, true)
+    end
   end
+
+  -- Reset all window references so has_hidden_windows() returns false
+  threads_win = nil
+  skills_win = nil
+  keymaps_win = nil
+  agent_win = nil
+
+  -- Clean up mode-specific elements (also preserves agent_explorer term buf)
+  close_agent_in_explorer()
+  close_requirements_panel()
+  close_planner_panel()
+  panels_visible = false
 end
 
 -- Check if we have hidden windows to restore
-local function has_hidden_windows()
+has_hidden_windows = function()
   if threads_win and vim.api.nvim_win_is_valid(threads_win) then
     return true
   end
@@ -3474,7 +4333,7 @@ local function has_hidden_windows()
 end
 
 -- Restore hidden panels or create new ones
-local function open_panels()
+open_panels = function()
   calculate_panel_widths()
 
   -- If already visible, just refresh
@@ -3532,7 +4391,31 @@ local function open_panels()
 
   -- Create new panels from scratch
   local focus_win = vim.api.nvim_get_current_win()
-  local base_win = find_editor_window(focus_win) or focus_win
+
+  -- Find the leftmost non-panel window so panels always appear on the far left,
+  -- even when the user has split buffers open side by side.
+  -- Include floating windows (like Edgy/NeoTree) because they are valid targets
+  -- for leftabove vsplit.
+  local leftmost_win = nil
+  local leftmost_col = 999999
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if is_workspace_panel(win) then goto continue end
+    local config = vim.api.nvim_win_get_config(win)
+    local col = config.col or 0
+    if col < leftmost_col then
+      leftmost_col = col
+      leftmost_win = win
+    end
+    ::continue::
+  end
+
+  -- If no window found at all (unlikely), create a new editor window
+  local base_win = leftmost_win or find_editor_window(focus_win)
+  if not base_win then
+    -- No suitable window exists; create a temporary editor window
+    vim.cmd("edit")
+    base_win = vim.api.nvim_get_current_win()
+  end
 
   -- Create Threads+Skills panel (leftmost vertical split)
   vim.api.nvim_set_current_win(base_win)
@@ -3592,17 +4475,21 @@ local function open_panels()
   end
 
   panels_visible = true
+  -- Resize panels after the layout stabilizes (buffers may have been restored/hidden)
+  vim.schedule(resize_panels)
 end
 
 function M.open()
-  open_panels()
+  -- Open resets to full mode (all panels visible)
+  M.set_mode("full", { skip_notify = true })
 end
 
 function M.toggle()
   if is_open() then
     hide_panels()
   else
-    open_panels()
+    -- Restore to current mode
+    apply_workspace_mode(current_workspace_mode, { skip_notify = true })
   end
 end
 
@@ -3739,6 +4626,76 @@ end
 -- Open the Skill Market floating window
 function M.open_skill_market()
   require("lenn.skill-market").open()
+end
+
+-- ─── Workspace Mode Public API ──────────────────────────────────────────────
+
+function M.get_mode()
+  return current_workspace_mode
+end
+
+function M.get_mode_info()
+  return workspace_modes[current_workspace_mode]
+end
+
+function M.set_mode(mode, opts)
+  if not workspace_modes[mode] then
+    vim.notify("Unknown workspace mode: " .. mode, vim.log.levels.ERROR)
+    return
+  end
+  apply_workspace_mode(mode, opts)
+end
+
+function M.next_mode()
+  local mode_keys = { "agent", "edit", "full", "plan" }
+  local idx = 1
+  for i, k in ipairs(mode_keys) do
+    if k == current_workspace_mode then
+      idx = i
+      break
+    end
+  end
+  local next_idx = (idx % #mode_keys) + 1
+  M.set_mode(mode_keys[next_idx])
+end
+
+function M.prev_mode()
+  local mode_keys = { "agent", "edit", "full", "plan" }
+  local idx = 1
+  for i, k in ipairs(mode_keys) do
+    if k == current_workspace_mode then
+      idx = i
+      break
+    end
+  end
+  local prev_idx = ((idx - 2 + #mode_keys) % #mode_keys) + 1
+  M.set_mode(mode_keys[prev_idx])
+end
+
+-- Cycle through modes with a selector
+function M.select_mode()
+  local mode_keys = { "agent", "edit", "full", "plan" }
+  local choices = {}
+  for _, k in ipairs(mode_keys) do
+    local info = workspace_modes[k]
+    table.insert(choices, string.format("%s %s — %s", info.icon, info.name, info.desc))
+  end
+  vim.ui.select(choices, {
+    prompt = "Select workspace mode:",
+    fmt_item = function(item)
+      return item
+    end,
+  }, function(choice)
+    if not choice then return end
+    for _, k in ipairs(mode_keys) do
+      local info = workspace_modes[k]
+      local label = string.format("%s %s — %s", info.icon, info.name, info.desc)
+      if choice == label then
+        M.set_mode(k)
+        break
+      end
+    end
+  end)
 end
 
 return M

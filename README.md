@@ -27,6 +27,8 @@ mvim <file>       # open a file
 - [Explorer](#explorer)
 - [Projects](#projects)
 - [Notes (Norg)](#notes-norg)
+- [Requirements](#requirements)
+- [Workspaces](#workspaces)
 - [LSP](#lsp)
 - [Diagnostics and lists (Trouble)](#diagnostics-and-lists-trouble)
 - [Git](#git)
@@ -60,6 +62,8 @@ mvim <file>       # open a file
 | `space l` | LSP | code actions, format, hover, symbols |
 | `space n` | Notes | neorg, journal, table of contents |
 | `space p` | Projects | neovim-project |
+| `space w` | Workspaces | workspace modes (agent, edit, full, plan) |
+| `space y` | Requirements | requirements workspace, planning panel |
 | `space r` | Remote | distant.nvim |
 | `space t` | Terminal | toggleterm |
 | `space u` | UI | color picker |
@@ -188,6 +192,77 @@ Default `neorg` keybinds are kept under `<LocalLeader>` (`\ t d` marks a TODO
 as done, `\ t p` pending, `\ t u` undone, `\ t h` on hold, `\ t c` cancelled,
 `\ n n` new note). Concealer is on with the `diamond` icon preset; `norg`
 buffers enable wrap, linebreak and spell.
+
+---
+
+## Requirements
+
+Dedicated workspace for requirements planning and documentation, stored in
+`~/requirements/`. Supports both markdown (`.md`) and norg (`.norg`) formats.
+The `requirements-engineer` Agent Skill guides the planning process: eliciting
+functional (RF) and non-functional (RNF) requirements, defining acceptance
+criteria, and breaking down requirements into tasks with traceable prefixes
+like `[RF001]`.
+
+| Mapping | Description |
+|---------|-------------|
+| `space y r` | Open the requirements workspace |
+| `space y n` | Create a new requirement file |
+| `space y i` | Open `~/requirements/index.norg` |
+| `space y p` | Open the Requirements Panel (sidebar, right) |
+| `space y f` | Open the Requirements Panel (floating) |
+
+The Requirements Panel opens as a **right sidebar** by default (next to the file explorer), or as a **floating window** using `space y f`. Inside the panel, press `F` to toggle between sidebar and float modes. It has three tabs: **Requirements** (list and manage `.md`/`.norg` files), **Tasks** (view tasks linked to requirements via `[RF001]`/`[RNF001]` prefixes), and **References** (attached PDF, Word, or text files). Use `Tab` to switch tabs, `<CR>` to open or toggle items, `n` to create a new file, `A` to attach a reference, and `q` to close.
+
+---
+
+## Workspaces
+
+Workspace modes let you switch the entire layout to match your current focus,
+similar to pages in DaVinci Resolve. Each mode shows only the panels relevant
+to that workflow, and the agent terminal is **preserved across mode switches** —
+the same provider panel moves to the new position instead of creating a new one.
+
+| Mapping | Description |
+|---------|-------------|
+| `space w` | Workspace menu |
+| `space w w` | Cycle to the next workspace mode |
+| `space w 1` | Workspace 1 — Agent mode |
+| `space w 2` | Workspace 2 — Edit mode |
+| `space w 3` | Workspace 3 — Full mode |
+| `space w 4` | Workspace 4 — Plan mode |
+| `space w s` | Select workspace mode (visual picker) |
+
+The current workspace mode is shown in the **status line** (lualine). Click the
+mode indicator to open the mode picker.
+
+### Workspace 1 — Agent
+Shows only the agent panels (threads, skills, keymaps, agent) and the file
+explorer. All editor buffers are minimized so the agent work takes full priority.
+
+### Workspace 2 — Edit
+Editor buffers take priority. The file explorer stays open on the left, and the
+agent panel appears as a split below the explorer. Ideal for coding with a
+compact agent reference in the corner.
+
+### Workspace 3 — Full
+All panels are visible: agent panels on the left, explorer, editor buffers, and
+the planner panel as a horizontal split below the buffers. The default mode.
+
+### Workspace 4 — Plan
+Dedicated to requirements planning. Shows the requirements panel with the
+**Requirements Elicitation** tab (based on Sommerville Ch. 4), the planner
+panel for creating planning documents, and the agent panel for ideas. All editor
+buffers are minimized.
+
+### Planner Panel
+The planner panel (shown in Plan and Full modes) lets you create planning
+documents for your project. Select an option and press `<CR>`:
+- **Markdown format (.md)** — creates a standard markdown planner file.
+- **Norg format (.norg)** — creates a norg planner file.
+
+Planner files are stored in `~/requirements/planners/` and include sections for
+project overview, goals, scope, milestones, risks, resources, and timeline.
 
 ---
 
@@ -450,6 +525,9 @@ lua/lenn/
 │   ├── init.lua
 │   ├── options.lua     # options, diagnostics, colorscheme
 │   └── keymaps.lua     # global + LSP mappings
+├── agent-workspace.lua # workspace modes, agent panel, planner
+├── requirements-panel.lua # requirements panel with tabs
+├── icons.lua           # Nerd Font icon definitions
 └── plugins/
     ├── init.lua        # plugin registration
     ├── neotree.lua  bufferline.lua  lualine.lua  snacks.lua
@@ -459,4 +537,5 @@ lua/lenn/
     ├── codex.lua      distant.lua   minty.lua    dap.lua
     ├── dap-python.lua  aerial.lua   autopairs.lua flash.lua
     ├── harpoon.lua    mason-tools.lua  neorg.lua
+    ├── edgy.lua       # explorer sidebar (neo-tree wrapper)
 ```

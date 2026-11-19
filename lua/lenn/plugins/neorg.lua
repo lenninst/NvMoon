@@ -2,6 +2,7 @@
 -- `version = "*"` makes lazy.nvim install the latest stable release from
 -- luarocks, together with its Lua dependencies and the norg treesitter parsers.
 local notes_dir = vim.fn.expand("~/notes")
+local requirements_dir = vim.fn.expand("~/requirements")
 
 return {
   {
@@ -19,6 +20,7 @@ return {
           config = {
             workspaces = {
               notes = notes_dir,
+              requirements = requirements_dir,
             },
             default_workspace = "notes",
             index = "index.norg",
@@ -42,6 +44,53 @@ return {
       { "<leader>ny", "<cmd>Neorg journal yesterday<cr>", desc = "Notes: journal (yesterday)" },
       { "<leader>nt", "<cmd>Neorg toc<cr>", desc = "Notes: table of contents" },
       { "<leader>nw", "<cmd>Neorg workspace notes<cr>", desc = "Notes: open workspace" },
+      { "<leader>yr", "<cmd>Neorg workspace requirements<cr>", desc = "Requirements: open workspace" },
+      {
+        "<leader>yn",
+        function()
+          local path = requirements_dir .. "/requirements.md"
+          vim.fn.mkdir(requirements_dir, "p")
+          if vim.fn.filereadable(path) == 0 then
+            vim.fn.writefile({
+              "# Requirements",
+              "",
+              "## Functional Requirements (RF)",
+              "",
+              "## Non-Functional Requirements (RNF)",
+              "",
+              "## Actors",
+              "",
+              "## References",
+            }, path)
+          end
+          vim.cmd.edit(vim.fn.fnameescape(path))
+        end,
+        desc = "Requirements: new requirement file",
+      },
+      {
+        "<leader>yi",
+        function()
+          local path = requirements_dir .. "/index.norg"
+          vim.fn.mkdir(requirements_dir, "p")
+          if vim.fn.filereadable(path) == 0 then
+            vim.fn.writefile({
+              "= Requirements Index",
+              "",
+              "This is the entry point for the requirements workspace.",
+              "Use it to organize projects and link to requirement files.",
+              "",
+              "* Projects::",
+              "  - Add your projects here with links to their requirement files.",
+              "",
+              "* Quick Links::",
+              "  - Use \\`space yn\\` to create a new requirement file.",
+              "  - Use \\`space yr\\` to open this workspace.",
+            }, path)
+          end
+          vim.cmd.edit(vim.fn.fnameescape(path))
+        end,
+        desc = "Requirements: open index",
+      },
       {
         "<leader>ni",
         function()
@@ -69,6 +118,7 @@ return {
 
       -- Keep the workspace around so `:Neorg` commands never fail on a fresh machine.
       vim.fn.mkdir(notes_dir, "p")
+      vim.fn.mkdir(requirements_dir, "p")
 
       vim.api.nvim_create_autocmd("FileType", {
         pattern = "norg",

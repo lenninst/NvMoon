@@ -67,3 +67,7 @@ map("n", "<leader>lk", vim.diagnostic.goto_prev, o("Previous diagnostic"))
 -- Kiro agent browser & creator
 map("n", "<leader>ka", function() require("lenn.kiro-agents").browse() end, o("Kiro: browse agents"))
 map("n", "<leader>kA", function() require("lenn.kiro-agents").create() end, o("Kiro: create new agent"))
+
+-- Requirements panel (split sidebar by default, float with 'f')
+map("n", "<leader>yp", function() require("lenn.requirements-panel").open() end, o("Requirements: open panel (sidebar)"))
+map("n", "<leader>yf", function() require("lenn.requirements-panel").open({ float = true }) end, o("Requirements: open panel (float)"))
