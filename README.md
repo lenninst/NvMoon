@@ -424,6 +424,14 @@ In any agent terminal, press `Ctrl-n` to create another session and choose its a
 
 > **⚠️ Under Development** — The Tasks Panel is currently a work in progress. Some features may be incomplete or contain bugs. Expect occasional issues while this module is being refined.
 
+<div align="center">
+
+![Tasks Panel](resources/taskpanels.png)
+
+*Create, assign, and track tasks across multiple agents.*
+
+</div>
+
 The Tasks Panel provides a centralized view for managing local tasks and GitHub issues across your projects. It integrates with the agent system, allowing you to dispatch tasks to multiple AI agents simultaneously.
 
 ### Task States
