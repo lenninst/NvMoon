@@ -240,20 +240,28 @@ mode indicator to open the mode picker.
 Shows only the agent panels (threads, skills, keymaps, agent) and the file
 explorer. All editor buffers are minimized so the agent work takes full priority.
 
+![Workspace 1 — Agent](resources/agentmode.png)
+
 ### Workspace 2 — Edit
 Editor buffers take priority. The file explorer stays open on the left, and the
 agent panel appears as a split below the explorer. Ideal for coding with a
 compact agent reference in the corner.
 
+![Workspace 2 — Edit](resources/editmode.png)
+
 ### Workspace 3 — Full
 All panels are visible: agent panels on the left, explorer, editor buffers, and
 the planner panel as a horizontal split below the buffers. The default mode.
+
+![Workspace 3 — Full](resources/fullmode.png)
 
 ### Workspace 4 — Plan
 Dedicated to requirements planning. Shows the requirements panel with the
 **Requirements Elicitation** tab (based on Sommerville Ch. 4), the planner
 panel for creating planning documents, and the agent panel for ideas. All editor
 buffers are minimized.
+
+![Workspace 4 — Plan](resources/plannermode.png)
 
 ### Planner Panel
 The planner panel (shown in Plan and Full modes) lets you create planning
