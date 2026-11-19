@@ -82,6 +82,7 @@ Switch workspaces with `space w` or cycle through modes with `space w w`. Curren
 - [Hunks (buffer-local)](#hunks-buffer-local)
 - [Harpoon](#harpoon)
 - [AI, Codex and Terminal](#ai-codex-and-terminal)
+- [Tasks Panel](#tasks-panel)
 - [Remote (Distant)](#remote-distant)
 - [Debug](#debug)
 - [Flash](#flash)
@@ -415,6 +416,56 @@ In any agent terminal, press `Ctrl-n` to create another session and choose its a
 | `space t` | Toggle floating terminal |
 | `space t h` | Terminal in a horizontal split |
 | `space t v` | Terminal in a vertical split |
+
+---
+
+## Tasks Panel
+
+> **⚠️ Under Development** — The Tasks Panel is currently a work in progress. Some features may be incomplete or contain bugs. Expect occasional issues while this module is being refined.
+
+The Tasks Panel provides a centralized view for managing local tasks and GitHub issues across your projects. It integrates with the agent system, allowing you to dispatch tasks to multiple AI agents simultaneously.
+
+### Task States
+
+Each task moves through a lifecycle of states:
+
+| State | Description |
+|-------|-------------|
+| **Pending** | Task is created and waiting to be assigned to an agent. |
+| **In Progress** | Task has been assigned to an agent and is actively being worked on. |
+| **Terminated** | Task has been completed successfully and verified. |
+| **Failed** | Task verification failed or was manually marked as failed. |
+
+### Creating Tasks
+
+- Press `+` in the Tasks tab to create a new local task.
+- You can optionally define **acceptance criteria** and a **verification command** for each task.
+- Tasks are saved under Neovim's data directory, organized by project.
+
+### Assigning Tasks to Agents
+
+- Press `>` on a pending task to assign it to an agent.
+- The task automatically moves to **In Progress**.
+- You can assign **multiple tasks to different agents** at the same time, enabling parallel work.
+- Press `o` on an in-progress task to reopen its linked agent thread.
+
+### Verifying and Completing Tasks
+
+- Press `v` to run the task's verification command (exit code 0 means pass).
+- Tasks without a verification command will prompt for a manual pass/fail decision.
+- Press `x` to mark a task as **Terminated** (complete).
+- Press `f` to mark a task as **Failed**.
+- Press `a` to archive a task, or `u` to restore an archived task back to **Pending**.
+
+### GitHub Issues Integration
+
+The Tasks Panel also displays open GitHub issues for the selected project's `origin` branch, letting you track and manage remote issues alongside local tasks.
+
+### Navigation
+
+- Use `Tab` to switch between the **Threads** and **Tasks** views.
+- Use `[` / `]` to switch between projects.
+- Use `j` / `k` to navigate the task list, and `<CR>` to toggle or open items.
 
 ---
 
