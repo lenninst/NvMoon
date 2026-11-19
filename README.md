@@ -83,6 +83,7 @@ Switch workspaces with `space w` or cycle through modes with `space w w`. Curren
 - [Harpoon](#harpoon)
 - [AI, Codex and Terminal](#ai-codex-and-terminal)
 - [Tasks Panel](#tasks-panel)
+- [Threads Panel](#threads-panel)
 - [Remote (Distant)](#remote-distant)
 - [Debug](#debug)
 - [Flash](#flash)
@@ -466,6 +467,50 @@ The Tasks Panel also displays open GitHub issues for the selected project's `ori
 - Use `Tab` to switch between the **Threads** and **Tasks** views.
 - Use `[` / `]` to switch between projects.
 - Use `j` / `k` to navigate the task list, and `<CR>` to toggle or open items.
+
+---
+
+## Threads Panel
+
+> **⚠️ Under Development** — The Threads Panel is currently a work in progress. Some features may be incomplete or contain bugs. Expect occasional issues while this module is being refined.
+
+<div align="center">
+
+![Threads Panel](resources/threadspanel.png)
+
+*Browse, create, and manage agent sessions across your projects.*
+
+</div>
+
+The Threads Panel lets you browse all saved agent threads organized by project. Use it to revisit previous conversations, create new sessions, and switch between Threads and Tasks views seamlessly.
+
+### Browsing Threads
+
+- Use `j` / `k` to navigate the list of projects and their threads.
+- Press `l` on a project row to expand it and see its threads.
+- Press `<CR>` on a project row to toggle expand/collapse.
+- Press `l` or `<CR>` on a thread to open it in the agent panel.
+- Press `r` to refresh the thread list.
+
+### Creating New Sessions
+
+- Press `+` on a project to choose an agent and create a new session there.
+- The new session opens immediately in the agent panel.
+
+### Switching Views
+
+- Press `<Tab>` to switch between the **Threads** and **Tasks** views within the same panel.
+- Use `[` / `]` to switch between projects.
+
+### Agent Panel Tabs
+
+The agent panel (opened via `space a p`) shows a persistent **Providers** tab and one tab for each active thread or task in the current project:
+
+- `<Tab>` advances one tab per press and wraps back to Providers.
+- `<S-Tab>` moves backward.
+- While `Tab` is held, numbers appear on each tab — press a number to jump directly to that tab.
+- `Ctrl-g` returns to the Providers tab without stopping the current agent.
+- `<CR>` opens the selected tab.
 
 ---
 
