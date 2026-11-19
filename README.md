@@ -55,6 +55,9 @@ NvMoon features **4 workspace modes** that let you switch the entire layout to m
 | **Full Mode** | **Plan Mode** |
 | All panels visible — the default workspace. | Dedicated requirements planning with elicitation tab. |
 | ![Workspace 3 — Full](resources/fullmode.png) | ![Workspace 4 — Plan](resources/plannermode.png) |
+| **Tasks Panel** | **Threads Panel** |
+| Create, assign, and track tasks across multiple agents. | Browse, create, and manage agent sessions across projects. |
+| ![Tasks Panel](resources/taskpanels.png) | ![Threads Panel](resources/threadspanel.png) |
 
 </div>
 
