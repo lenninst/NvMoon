@@ -6,6 +6,55 @@ end
 map("n", "<leader>w", "<cmd>write<cr>", o("Write file"))
 map("n", "<leader>q", "<cmd>quit<cr>", o("Quit window"))
 
+-- Quit Neovim in one step (panels, agent terminals and all), after confirming.
+-- Lists unsaved files and running terminals/agents so nothing is lost by surprise.
+local function quit_all()
+  local modified, running = {}, 0
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) then
+      if vim.bo[buf].buftype == "" and vim.bo[buf].modified then
+        local name = vim.api.nvim_buf_get_name(buf)
+        modified[#modified + 1] = name ~= "" and vim.fn.fnamemodify(name, ":~:.") or "[No Name]"
+      elseif vim.bo[buf].buftype == "terminal" then
+        local job = vim.b[buf].terminal_job_id
+        local ok, res = pcall(vim.fn.jobwait, { job }, 0)
+        if job and ok and res[1] == -1 then running = running + 1 end
+      end
+    end
+  end
+
+  local lines = { "Quit Neovim?" }
+  if #modified > 0 then
+    lines[#lines + 1] = "\nUnsaved changes (" .. #modified .. "):"
+    for i = 1, math.min(#modified, 8) do lines[#lines + 1] = "  • " .. modified[i] end
+    if #modified > 8 then lines[#lines + 1] = "  … and " .. (#modified - 8) .. " more" end
+  end
+  if running > 0 then
+    lines[#lines + 1] = "\nRunning terminals/agents that will be stopped: " .. running
+  end
+  local msg = table.concat(lines, "\n")
+
+  if #modified == 0 then
+    if vim.fn.confirm(msg, "&Yes\n&No", 2, "Question") == 1 then vim.cmd("qa!") end
+    return
+  end
+
+  local choice = vim.fn.confirm(msg, "&Save all and quit\n&Discard changes and quit\n&Cancel", 3, "Warning")
+  if choice == 1 then
+    local ok, err = pcall(vim.cmd, "wall")
+    if not ok then
+      vim.notify("Could not save everything, not quitting:\n" .. tostring(err), vim.log.levels.ERROR)
+      return
+    end
+    vim.cmd("qa!")
+  elseif choice == 2 then
+    vim.cmd("qa!")
+  end
+end
+
+map("n", "<leader>Q", quit_all, o("Quit Neovim (confirm)"))
+vim.api.nvim_create_user_command("QuitAll", quit_all, { desc = "Quit Neovim after confirming" })
+
 map({ "n", "x" }, "gy", '"+y', o("Copy to clipboard (system)"))
 map({ "n", "x" }, "gp", '"+p', o("Paste from clipboard (system)"))
 

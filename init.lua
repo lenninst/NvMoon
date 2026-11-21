@@ -1,3 +1,7 @@
 require("lenn.core")
 require("lenn.lazy")
 require("lenn.plugins")
+require("lenn.start-screen").setup()
+require("lenn.pane-picker").setup()
+require("lenn.focus-frame").setup()
+require("lenn.agent-context").setup()

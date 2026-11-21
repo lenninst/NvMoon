@@ -67,7 +67,8 @@ return {
           offsets = {
             {
               filetype = "neo-tree",
-              text = "Explorer",
+              -- Folder shown as the tree root (follows navigation), not a fixed label
+              text = function() return require("lenn.explorer").title() end,
               highlight = "Directory",
               text_align = "left",
             },

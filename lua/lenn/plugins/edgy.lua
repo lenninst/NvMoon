@@ -124,6 +124,51 @@ return {
         desc = "Workspace: 4-Plan mode",
       },
       {
+        "<M-1>",
+        set_workspace_mode_agent,
+        mode = { "n", "t", "i" },
+        desc = "Workspace: 1-Agent mode (works in any panel/terminal)",
+      },
+      {
+        "<M-2>",
+        set_workspace_mode_edit,
+        mode = { "n", "t", "i" },
+        desc = "Workspace: 2-Edit mode (works in any panel/terminal)",
+      },
+      {
+        "<M-3>",
+        set_workspace_mode_full,
+        mode = { "n", "t", "i" },
+        desc = "Workspace: 3-Full mode (works in any panel/terminal)",
+      },
+      {
+        "<M-4>",
+        set_workspace_mode_plan,
+        mode = { "n", "t", "i" },
+        desc = "Workspace: 4-Plan mode (works in any panel/terminal)",
+      },
+      {
+        "<M-m>",
+        function() require("lenn.agent-workspace").toggle_minimize() end,
+        mode = { "n", "t", "i" },
+        desc = "Window: minimize / restore (keeps its content)",
+      },
+      {
+        "<leader>wm",
+        function() require("lenn.agent-workspace").toggle_minimize() end,
+        desc = "Workspace: minimize / restore window",
+      },
+      {
+        "<leader>wM",
+        function() require("lenn.agent-workspace").restore_all() end,
+        desc = "Workspace: restore all minimized windows",
+      },
+      {
+        "<leader>wr",
+        function() require("lenn.agent-workspace").rebuild() end,
+        desc = "Workspace: rebuild layout",
+      },
+      {
         "<leader>ww",
         cycle_workspace_mode,
         desc = "Workspace: cycle mode",
@@ -143,16 +188,30 @@ return {
     end,
     opts = {
       animate = { enabled = false },
-      options = {},
+      options = {
+        -- Edgebar width follows the agent workspace's responsive explorer width
+        right = {
+          size = function()
+            return require("lenn.agent-workspace").explorer_width()
+          end,
+        },
+      },
       left = {},
       right = {
         {
           title = "Explorer",
           ft = "neo-tree",
+          -- Files / Buffers / Git share the same docked column (switched from lualine)
           filter = function(buf)
-            return vim.b[buf].neo_tree_source == "filesystem"
+            local source = vim.b[buf].neo_tree_source
+            return source == "filesystem" or source == "buffers" or source == "git_status"
           end,
-          size = { width = 30 },
+          -- Same responsive width the agent workspace uses for its layout
+          size = {
+            width = function()
+              return require("lenn.agent-workspace").explorer_width()
+            end,
+          },
         },
       },
       wo = {

@@ -179,6 +179,39 @@ return {
 
       resolve()
 
+      -- Explorer views (Files / Buffers / Git): one clickable icon each; the one
+      -- shown in the panel is highlighted. Clicking swaps the panel in place.
+      local explorer_views = {}
+      for _, source in ipairs(require("lenn.explorer").sources) do
+        explorer_views[#explorer_views + 1] = {
+          function()
+            return source.icon
+          end,
+          color = function()
+            local _, _, active = require("lenn.explorer").visible()
+            return { fg = active == source.name and palette.accent or palette.faint, bg = "none" }
+          end,
+          padding = { left = 0, right = 1 },
+          on_click = function()
+            require("lenn.explorer").show(source.name)
+          end,
+        }
+      end
+
+      local section_a = {
+        {
+          function()
+            return ICON.explorer
+          end,
+          color = { fg = palette.faint, bg = "none" },
+          padding = { left = 2, right = 1 },
+          on_click = function()
+            vim.cmd("Neotree toggle")
+          end,
+        },
+      }
+      vim.list_extend(section_a, explorer_views)
+
       require("lualine").setup({
         options = {
           theme = "auto",
@@ -188,17 +221,7 @@ return {
         },
 
         sections = {
-          lualine_a = {
-            {
-              function()
-                return ICON.explorer
-              end,
-              color = { fg = palette.faint, bg = "none" },
-              padding = { left = 2, right = 1 },
-              on_click = function()
-                vim.cmd("Neotree toggle")
-              end,
-            },
+          lualine_a = vim.list_extend(section_a, {
             {
               function()
                 return ICON.finder
@@ -246,7 +269,7 @@ return {
                 vim.cmd("Trouble diagnostics")
               end,
             },
-          },
+          }),
           lualine_b = {},
           lualine_c = {},
           lualine_x = {

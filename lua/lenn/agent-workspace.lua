@@ -13,6 +13,7 @@ local nf = require("lenn.icons")
 
 local threads_buf = nil       -- threads list buffer (persisted across toggles)
 local skills_buf = nil        -- skills list buffer (persisted across toggles)
+local keymaps_buf = nil       -- keymaps help buffer (persisted across toggles)
 local agent_buf = nil         -- agent selector buffer (persisted across toggles)
 local current_term = nil      -- current toggleterm instance
 local current_provider = nil  -- current provider name
@@ -51,11 +52,24 @@ local skills_win = nil
 local keymaps_win = nil
 local agent_win = nil
 
--- Panel sizes
+-- Panel sizes (computed by calculate_panel_widths from the screen size)
 local threads_width = 50
 local agent_width = 60
+local explorer_width = 30
+local requirements_width = 48
 local skills_height_ratio = 0.18  -- Skills occupies 18% of left panel height
-local keymaps_height = 15         -- Help panel fixed height
+local keymaps_height = 15         -- Help panel max height
+
+-- Every panel scales with the screen but stays within [min, max] columns,
+-- so sizes are the same on every open and never collapse or take over.
+-- `floor` is the hard minimum used only when the screen is too small for `min`.
+local panel_limits = {
+  threads = { ratio = 0.18, min = 28, max = 42, floor = 20 },
+  explorer = { ratio = 0.15, min = 24, max = 34, floor = 18 },
+  agent = { ratio = 0.32, min = 45, max = 90, floor = 30 },
+  requirements = { ratio = 0.28, min = 36, max = 70, floor = 24 },
+}
+local editor_min_width = 60       -- code buffers keep at least this much room
 
 -- Track whether panels are currently visible
 local panels_visible = false
@@ -67,8 +81,8 @@ local panels_visible = false
 -- Modes:
 --   "agent"  — Only agent panels (threads+skills+keymaps+agent). All buffers
 --              are minimized. Explorer stays available. Panels take full priority.
---   "edit"   — Explorer + buffers take priority. Agent panel appears inside
---              the explorer area as a horizontal split below NeoTree.
+--   "edit"   — Explorer + buffers take priority. Agent panel is a narrow
+--              column between the code buffers and the explorer.
 --   "full"   — All panels visible: threads+skills+keymaps+agent + explorer.
 --              This is the default complete layout.
 --   "plan"   — Requirements panel takes priority + agent panel for ideas.
@@ -85,7 +99,7 @@ local workspace_modes = {
   edit = {
     name = "Edit",
     icon = nf.mode_edit,
-    desc = "Explorer + buffers priority, agent in explorer split",
+    desc = "Explorer + buffers priority, agent beside explorer",
   },
   full = {
     name = "Full",
@@ -112,7 +126,7 @@ local agent_explorer_win = nil
 local agent_explorer_buf = nil
 
 -- Minimized editor windows for "agent" mode (buffers hidden, restored on mode switch)
-local minimized_editor_wins = {}
+local minimized_editor_bufs = {}
 
 -- Preserve the agent terminal buffer across workspace mode transitions.
 -- When switching modes, the terminal buffer is saved here so the same provider
@@ -130,6 +144,11 @@ local render_agent_panel
 local is_workspace_panel
 local apply_agent_style
 local apply_neo_tree_style
+local create_agent_split_in_explorer
+local create_planner_file
+local restore_agent_term_buf
+local resize_panels
+local calculate_panel_widths
 
 local function close_agent_in_explorer()
   if agent_explorer_win and vim.api.nvim_win_is_valid(agent_explorer_win) then
@@ -151,8 +170,7 @@ end
 local function find_neo_tree_win()
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     local buf = vim.api.nvim_win_get_buf(win)
-    local bt = vim.b[buf] and vim.b[buf].buftype or ""
-    if bt == "neo-tree" then
+    if vim.bo[buf].filetype == "neo-tree" then
       return win
     end
   end
@@ -184,39 +202,21 @@ local function open_agent_in_explorer()
   create_agent_split_in_explorer(neo_tree_win)
 end
 
-local function create_agent_split_in_explorer(neo_tree_win)
+create_agent_split_in_explorer = function(neo_tree_win)
   if not neo_tree_win or not vim.api.nvim_win_is_valid(neo_tree_win) then
     return
   end
 
-  -- Get the NeoTree window dimensions
-  local width = vim.api.nvim_win_get_width(neo_tree_win)
-  local neo_height = vim.api.nvim_win_get_height(neo_tree_win)
-
-  -- Get NeoTree position in the editor
-  -- For Edgy windows, nvim_win_get_config returns {relative="editor", col, row}
-  local config = vim.api.nvim_win_get_config(neo_tree_win)
-  local col = config.col or 0
-  local row = config.row or 0
-
-  -- Calculate the position below NeoTree
-  local agent_height = 18
-  local new_row = row + neo_height
-
   -- Set up the agent buffer
   agent_explorer_buf = M.ensure_agent_buf()
 
-  -- Create a window below NeoTree aligned with it
-  -- Use relative="editor" to position it precisely
+  -- Full-height column on the far left: | Agent | code | Explorer |
+  -- (Edgy owns the explorer column, so the agent can't live below NeoTree.)
+  calculate_panel_widths()
   agent_explorer_win = vim.api.nvim_open_win(agent_explorer_buf, false, {
-    relative = "editor",
-    row = new_row,
-    col = col,
-    width = width,
-    height = agent_height,
-    style = "minimal",
-    border = "none",
-    noautocmd = true,
+    split = "left",
+    win = -1,
+    width = agent_width,
   })
 
   -- Style the window to match NeoTree
@@ -227,6 +227,10 @@ local function create_agent_split_in_explorer(neo_tree_win)
   vim.wo[agent_explorer_win].cursorline = true
   vim.wo[agent_explorer_win].winfixwidth = true
   apply_neo_tree_style(agent_explorer_win, " Agent ")
+  vim.schedule(resize_panels)
+
+  -- Reuse the running agent terminal (the split may be created deferred)
+  restore_agent_term_buf()
 
   -- Render the agent panel
   vim.schedule(function()
@@ -311,7 +315,7 @@ local function create_planner_buf()
 end
 
 -- Create a planner file in the specified format
-local function create_planner_file(format)
+create_planner_file = function(format)
   local project_name = vim.fn.input("Project name [project]: ")
   if not project_name or project_name == "" then project_name = "project" end
   project_name = vim.fn.trim(project_name)
@@ -383,31 +387,32 @@ local function open_planner_panel(horizontal)
   local buf = create_planner_buf()
   local focus_win = vim.api.nvim_get_current_win()
 
-  -- Find a base window for the split
-  local base_win = nil
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if not is_workspace_panel(win) and win ~= req_win then
-      base_win = win
-      break
+  -- Split from a code window: the first listed window may be NeoTree or a
+  -- floating/terminal window, which leaves the planner as a full-height column.
+  local base_win = find_editor_window(focus_win)
+  if not base_win then
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      if not is_workspace_panel(win) and win ~= req_win
+        and vim.api.nvim_win_get_config(win).relative == ""
+        and vim.bo[vim.api.nvim_win_get_buf(win)].filetype ~= "neo-tree" then
+        base_win = win
+        break
+      end
     end
   end
-  if not base_win then
-    base_win = focus_win
-  end
+  base_win = base_win or focus_win
 
   vim.api.nvim_set_current_win(base_win)
   if horizontal then
     vim.cmd("rightbelow split")
     planner_win = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(planner_win, buf)
-    vim.api.nvim_win_set_height(planner_win, 15)
     vim.wo[planner_win].winfixheight = true
   else
     vim.cmd("rightbelow vsplit")
     planner_win = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(planner_win, buf)
-    vim.api.nvim_win_set_width(planner_win, 40)
-    vim.wo[planner_win].winfixwidth = true
+    vim.wo[planner_win].winfixwidth = false
   end
   vim.wo[planner_win].number = false
   vim.wo[planner_win].relativenumber = false
@@ -487,9 +492,14 @@ end
 -- Restore the saved agent terminal buffer into the current agent window.
 -- Called after opening panels in a new workspace mode so the same provider
 -- panel is reused instead of creating a new one.
-local function restore_agent_term_buf()
+restore_agent_term_buf = function()
   if not saved_agent_term_buf or not vim.api.nvim_buf_is_valid(saved_agent_term_buf) then
-    return
+    -- Fall back to the current session so it is reused instead of duplicated
+    local buf = current_term and current_term.bufnr
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then
+      return
+    end
+    saved_agent_term_buf = buf
   end
   -- Try to restore in agent_win first
   if agent_win and vim.api.nvim_win_is_valid(agent_win) then
@@ -577,94 +587,145 @@ local function move_toggleterm_to_agent_win()
 end
 
 -- Minimize all editor buffer windows (hide them) so only agent panels and explorer are visible.
--- Stores the hidden windows in minimized_editor_wins for later restoration.
+-- Hidden windows are closed by nvim_win_hide, so we remember their buffers instead.
 local function minimize_editor_buffers()
-  minimized_editor_wins = {}
   for _, win in ipairs(vim.api.nvim_list_wins()) do
-    local config = vim.api.nvim_win_get_config(win)
-    -- Skip floating windows
-    if config.relative ~= "" then
-      goto continue
-    end
-    -- Skip workspace panels
-    if is_workspace_panel(win) then
-      goto continue
-    end
-    -- Skip NeoTree window
     local buf = vim.api.nvim_win_get_buf(win)
-    local bt = vim.b[buf] and vim.b[buf].buftype or ""
-    if bt == "neo-tree" then
-      goto continue
+    if vim.api.nvim_win_get_config(win).relative == ""
+      and not is_workspace_panel(win)
+      and vim.bo[buf].filetype ~= "neo-tree"
+      and not vim.b[buf].agent_panel then
+      if vim.bo[buf].buftype == "" and not vim.tbl_contains(minimized_editor_bufs, buf) then
+        table.insert(minimized_editor_bufs, buf)
+      end
+      pcall(vim.api.nvim_win_hide, win)
     end
-    -- Hide this editor window
-    table.insert(minimized_editor_wins, win)
-    pcall(vim.api.nvim_win_hide, win)
-    ::continue::
   end
 end
 
--- Restore previously minimized editor buffer windows.
+-- Open a code window in the center column: right after the agent panel,
+-- left of the explorer. Shows `buf`, or an empty buffer when nil.
+local function open_center_window(buf)
+  local anchor
+  for _, win in ipairs({ agent_win, agent_explorer_win }) do
+    if win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_config(win).relative == "" then
+      anchor = win
+    end
+  end
+  anchor = anchor or vim.api.nvim_get_current_win()
+
+  vim.api.nvim_set_current_win(anchor)
+  vim.cmd("rightbelow vsplit")
+  local win = vim.api.nvim_get_current_win()
+  if buf then
+    vim.api.nvim_win_set_buf(win, buf)
+  else
+    vim.cmd.enew()
+  end
+  -- The split inherits the panel's window options; reset them for code
+  vim.wo[win].winbar = ""
+  vim.wo[win].winhighlight = ""
+  vim.wo[win].signcolumn = "yes"
+  vim.wo[win].winfixwidth = false
+  vim.wo[win].winfixheight = false
+  vim.wo[win].number = true
+  vim.wo[win].relativenumber = true
+  -- No file to show: use the start screen instead of a blank buffer
+  if not buf then
+    local ok, start_screen = pcall(require, "lenn.start-screen")
+    if ok then start_screen.show(win) end
+  end
+  return win
+end
+
+-- Reopen an editor window with the most recent minimized buffer (or an empty one).
+-- Must run while the agent panels still exist so there is a window to split from,
+-- otherwise NeoTree could end up as the last window and quit Neovim.
 local function restore_editor_buffers()
-  for _, win in ipairs(minimized_editor_wins) do
-    if win and vim.api.nvim_win_is_valid(win) then
-      -- Find a buffer for this window
+  local bufs = minimized_editor_bufs
+  minimized_editor_bufs = {}
+  if find_editor_window() then
+    return
+  end
+
+  local buf
+  for i = #bufs, 1, -1 do
+    if vim.api.nvim_buf_is_valid(bufs[i]) then
+      buf = bufs[i]
+      break
+    end
+  end
+  open_center_window(buf)
+end
+
+-- Close every window showing an agent buffer except `keep_win`, so switching
+-- workspaces never leaves two agent panels on screen.
+local function close_duplicate_agent_windows(keep_win)
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if win ~= keep_win and vim.api.nvim_win_is_valid(win) then
       local buf = vim.api.nvim_win_get_buf(win)
-      if buf and vim.api.nvim_buf_is_valid(buf) then
-        -- Show the window by making it visible again
-        vim.api.nvim_win_set_buf(win, buf)
+      if buf == agent_buf or vim.b[buf].agent_panel then
+        pcall(vim.api.nvim_win_close, win, false)
       end
     end
   end
-  minimized_editor_wins = {}
 end
 
 -- Apply a workspace mode layout
+-- True when every window the mode needs is still open. Closing a panel with
+-- :q breaks the layout; re-selecting the same mode then rebuilds it.
+local function workspace_layout_complete(mode)
+  local function ok(win) return win and vim.api.nvim_win_is_valid(win) end
+  local required = ({
+    agent = { threads_win, skills_win, keymaps_win, agent_win, find_neo_tree_win() },
+    edit = { agent_explorer_win, find_neo_tree_win() },
+    full = { threads_win, skills_win, keymaps_win, agent_win, planner_win, find_neo_tree_win() },
+    plan = { req_win, planner_win, agent_win },
+  })[mode] or {}
+  -- `required` may contain nils (holes), so walk the expected count explicitly
+  local expected = ({ agent = 5, edit = 2, full = 6, plan = 3 })[mode] or 0
+  for i = 1, expected do
+    if not ok(required[i]) then return false end
+  end
+  return true
+end
+
 local function apply_workspace_mode(mode, opts)
   opts = opts or {}
   local skip_notify = opts.skip_notify or false
 
-  if mode == current_workspace_mode then
-    return
+  local rebuilding = opts.force or false
+  if mode == current_workspace_mode and not opts.force then
+    if workspace_layout_complete(mode) then
+      if not skip_notify then
+        vim.notify("Workspace already complete: " .. workspace_modes[mode].name, vim.log.levels.INFO)
+      end
+      return
+    end
+    -- Same mode but some panel was closed: rebuild it from scratch
+    rebuilding = true
   end
 
-  -- Clean up previous mode
-  close_agent_in_explorer()
-  close_requirements_panel()
-
-  -- Hide all workspace panels first
-  if panels_visible then
-    hide_panels()
-  end
+  -- Tear down the previous layout completely (saves the agent terminal and
+  -- restores minimized buffers), so every mode reuses the same agent panel.
+  hide_panels()
 
   current_workspace_mode = mode
 
   if mode == "agent" then
-    -- Show only agent panels (threads+skills+keymaps+agent), minimize all buffers
-    -- Ensure explorer (NeoTree) is open
-    pcall(function()
-      local ok, edgy = pcall(require, "edgy")
-      if ok then
-        edgy.toggle({ location = "left" })
-      end
-    end)
+    -- | Threads+Tasks | Agent (center, expands) | Explorer |
     open_panels()
-    -- Restore the saved agent terminal buffer into the new panel
+    -- Reuse the running agent terminal instead of opening a second panel
     restore_agent_term_buf()
-    -- If a ToggleTerm agent terminal was running in edit mode, move it to the panel
     move_toggleterm_to_agent_win()
-    -- Minimize all editor buffer windows
+    -- File buffers are hidden while in agent mode
     minimize_editor_buffers()
+    -- Explorer always visible (Edgy keeps it on the right)
+    if not find_neo_tree_win() then
+      pcall(vim.cmd, "Neotree show right")
+    end
 
   elseif mode == "edit" then
-    -- Restore minimized buffers (if coming from agent/plan mode)
-    if #minimized_editor_wins > 0 then
-      restore_editor_buffers()
-    end
-    -- Hide agent panels, show agent in explorer split
-    -- Ensure panels are hidden
-    if has_hidden_windows() then
-      panels_visible = false
-    end
     open_agent_in_explorer()
     -- Restore the saved agent terminal buffer into the explorer split
     restore_agent_term_buf()
@@ -672,10 +733,6 @@ local function apply_workspace_mode(mode, opts)
     move_agent_win_to_explorer()
 
   elseif mode == "full" then
-    -- Restore minimized buffers (if coming from agent/plan mode)
-    if #minimized_editor_wins > 0 then
-      restore_editor_buffers()
-    end
     -- Show all panels
     open_panels()
     -- Restore the saved agent terminal buffer into the new panel
@@ -684,21 +741,13 @@ local function apply_workspace_mode(mode, opts)
     move_toggleterm_to_agent_win()
     -- Show planner panel below buffers (horizontal split)
     open_planner_panel(true)
+    -- Explorer on the right, reopened if it was closed
+    if not find_neo_tree_win() then
+      pcall(vim.cmd, "Neotree show right")
+    end
 
   elseif mode == "plan" then
     -- Hide all editor buffers; only show requirements, planner, and agent panels
-    -- Save the agent terminal buffer before creating new panels, so the same
-    -- provider panel is reused instead of creating a new one
-    if agent_win and vim.api.nvim_win_is_valid(agent_win) then
-      local buf = vim.api.nvim_win_get_buf(agent_win)
-      if buf and vim.api.nvim_buf_is_valid(buf) and vim.b[buf].agent_panel then
-        saved_agent_term_buf = buf
-      end
-    end
-    -- Hide main panels first
-    if has_hidden_windows() then
-      panels_visible = false
-    end
     -- Open requirements panel
     open_requirements_panel()
     -- Open planner panel
@@ -735,15 +784,25 @@ local function apply_workspace_mode(mode, opts)
     -- Restore the saved agent terminal buffer into the plan panel
     restore_agent_term_buf()
     render_agent_panel()
+    panels_visible = true
 
     if vim.api.nvim_win_is_valid(focus_win) then
       vim.api.nvim_set_current_win(focus_win)
     end
   end
 
+  -- Only one agent panel may exist after any mode switch
+  close_duplicate_agent_windows(mode == "edit" and agent_explorer_win or agent_win)
+  vim.schedule(resize_panels)
+  -- Any empty editor window left by the new layout gets the start screen
+  vim.schedule(function()
+    local ok, start_screen = pcall(require, "lenn.start-screen")
+    if ok then start_screen.check_all(false) end
+  end)
+
   if not skip_notify then
     local mode_info = workspace_modes[mode]
-    local msg = string.format("Workspace mode: %s %s", mode_info.icon, mode_info.name)
+    local msg = string.format("Workspace %s: %s %s", rebuilding and "rebuilt" or "mode", mode_info.icon, mode_info.name)
     vim.notify(msg, vim.log.levels.INFO)
   end
 end
@@ -815,7 +874,10 @@ local function refresh_focused_borders()
         table.insert(mappings, mapping)
       end
     end
-    local border_group = on_focused_outline and "AgentFocusedPanelBorder" or "AgentPanelBorder"
+    -- Separators stay neutral: the focused window gets its own rounded frame
+    -- (lenn.focus-frame), so neighbours are never lit up.
+    local border_group = "AgentPanelBorder"
+    local _ = on_focused_outline
     table.insert(mappings, "WinSeparator:" .. border_group)
     table.insert(mappings, "VertSplit:" .. border_group)
     if win == focused then
@@ -870,13 +932,36 @@ local function setup_highlights()
   -- Running threads: mauve/purple to mark threads with active sessions
   vim.api.nvim_set_hl(0, "AgentThreadRunning", { fg = theme_fg("@text.title", theme_fg("Title", "#cba6f7")) })
   vim.api.nvim_set_hl(0, "AgentCurrentProject", { fg = title_color })
+  vim.api.nvim_set_hl(0, "AgentAddProject", { link = "Special" })
+  -- Threads / Tasks tree look
+  vim.api.nvim_set_hl(0, "AgentTreeGuide", { fg = subtext_color })
+  vim.api.nvim_set_hl(0, "AgentBadge", { link = "Comment" })
+  vim.api.nvim_set_hl(0, "AgentThreadTime", { link = "Comment" })
+  vim.api.nvim_set_hl(0, "AgentFolderIcon", { link = "Directory" })
+  vim.api.nvim_set_hl(0, "AgentProjectName", { link = "Normal" })
+  vim.api.nvim_set_hl(0, "AgentTaskTitle", { link = "Normal" })
+  vim.api.nvim_set_hl(0, "AgentTaskDetailIcon", { fg = subtext_color })
+  vim.api.nvim_set_hl(0, "AgentMinimized", { fg = title_color, bold = true })
+  -- Providers cover
+  vim.api.nvim_set_hl(0, "AgentCoverTitle", { fg = title_color, bold = true })
+  vim.api.nvim_set_hl(0, "AgentCoverSection", { fg = subtext_color, bold = true })
+  vim.api.nvim_set_hl(0, "AgentCoverKey", { link = "Special" })
+  vim.api.nvim_set_hl(0, "AgentCoverMissing", { link = "NonText" })
+  -- Brand-ish colors for provider icons
+  vim.api.nvim_set_hl(0, "AgentProviderClaudeCode", { fg = "#d97757" })
+  vim.api.nvim_set_hl(0, "AgentProviderCodex", { fg = theme_fg("Normal", "#cdd6f4") })
+  vim.api.nvim_set_hl(0, "AgentProviderOpenCode", { fg = theme_fg("Normal", "#cdd6f4") })
+  vim.api.nvim_set_hl(0, "AgentProviderJunie", { fg = "#47e054" })
+  vim.api.nvim_set_hl(0, "AgentProviderKiro", { fg = "#9046ff" })
   -- Enabled skills use the theme's success color
   vim.api.nvim_set_hl(0, "AgentEnabledSkill", { fg = success_color, bold = true })
   -- Disabled skill icon uses the theme's comment color
   vim.api.nvim_set_hl(0, "AgentDisabledSkill", { fg = comment_color })
   -- Focused panel border uses a muted title/identifier color
   vim.api.nvim_set_hl(0, "AgentFocusedPanelBorder", { fg = muted_title, bg = "NONE" })
-  vim.api.nvim_set_hl(0, "AgentPanelBorder", { fg = border_color, bg = "NONE" })
+  -- Unfocused separators stay dim; the focused window gets an accent frame
+  vim.api.nvim_set_hl(0, "AgentPanelBorder", { fg = theme_fg("LineNr", theme_fg("NonText", border_color)), bg = "NONE" })
+  vim.api.nvim_set_hl(0, "AgentFocusFrame", { fg = title_color, bold = true })
   vim.api.nvim_set_hl(0, "AgentFocusedPanelWinBar", { fg = title_color, bg = float_bg, bold = true })
   vim.api.nvim_set_hl(0, "AgentFocusedPanelStatusLine", { fg = title_color, bg = float_bg })
   -- Active tab: editor bg text on title-color background
@@ -935,52 +1020,409 @@ apply_agent_style = function(win)
   refresh_focused_borders()
 end
 
-local function calculate_panel_widths()
-  local columns = vim.o.columns
-  local desired_threads = math.floor(columns * 0.16)
-  local desired_agent = math.floor(columns * 0.32)
-  local available = math.max(2, columns - 50) -- preserve room for the editor
-  local desired_total = desired_threads + desired_agent
+local function clamp(value, min, max)
+  return math.max(min, math.min(max, math.floor(value)))
+end
 
-  if desired_total > available then
-    local scale = available / desired_total
-    desired_threads = math.floor(desired_threads * scale)
-    desired_agent = available - desired_threads
+local function limit_width(name, columns)
+  local l = panel_limits[name]
+  return clamp(columns * l.ratio, l.min, l.max)
+end
+
+-- Panels each mode places side by side (besides code buffers)
+local mode_columns = {
+  agent = { "threads", "agent", "explorer" },
+  full = { "threads", "agent", "explorer" },
+  edit = { "agent", "explorer" },
+  plan = { "agent", "requirements", "explorer" },
+}
+
+calculate_panel_widths = function()
+  local columns = vim.o.columns
+  local widths = {}
+  for name in pairs(panel_limits) do
+    widths[name] = limit_width(name, columns)
   end
 
-  threads_width = math.max(1, desired_threads)
-  agent_width = math.max(1, desired_agent)
+  -- Leave room for code in modes that show it; shrink the agent first, then
+  -- threads, and on very small screens scale everything proportionally.
+  local mode = current_workspace_mode
+  local cols = mode_columns[mode] or mode_columns.full
+  local reserve = (mode == "full" or mode == "edit") and editor_min_width or 20
+  local available = columns - reserve - #cols
+  local function total()
+    local sum = 0
+    for _, name in ipairs(cols) do sum = sum + widths[name] end
+    return sum
+  end
+  for _, name in ipairs({ "agent", "threads", "requirements" }) do
+    local excess = total() - available
+    if excess > 0 and vim.tbl_contains(cols, name) then
+      widths[name] = math.max(panel_limits[name].min, widths[name] - excess)
+    end
+  end
+  local excess = total() - available
+  if excess > 0 and total() > 0 then
+    local scale = math.max(0.1, available / total())
+    for _, name in ipairs(cols) do
+      widths[name] = math.max(panel_limits[name].floor, math.floor(widths[name] * scale))
+    end
+  end
+
+  threads_width = widths.threads
+  agent_width = widths.agent
+  explorer_width = widths.explorer
+  requirements_width = widths.requirements
 end
 
 local function visible_window(win)
   return win and vim.api.nvim_win_is_valid(win) and vim.fn.win_id2win(win) > 0
 end
 
-local function resize_panels()
-  calculate_panel_widths()
+-- Windows resized in the current pass; their winfix* flags are released while
+-- resizing (Neovim can't take space from a fixed neighbour) and set afterwards.
+local fixed_wins = {}
 
-  for _, win in ipairs({ threads_win, skills_win, keymaps_win }) do
-    if visible_window(win) then
-      pcall(vim.api.nvim_win_set_width, win, threads_width)
+-- Minimized windows (see M.toggle_minimize): win -> state
+M._minimized = {}
+local MINIMIZED_WIDTH, MINIMIZED_HEIGHT = 3, 1
+
+local function set_fixed_width(win, width)
+  if visible_window(win) then
+    local m = M._minimized[win]
+    if m and m.dir == "width" then width = MINIMIZED_WIDTH end
+    fixed_wins[win] = true
+    pcall(vim.api.nvim_win_set_width, win, width)
+  end
+end
+
+-- True when `win` shares its column with another window. Shrinking a window
+-- that spans the whole column gives the rows to the command line instead
+-- (cmdheight grows, and Neovim aborts once it exceeds the screen height).
+local function has_vertical_neighbor(win)
+  return vim.api.nvim_win_call(win, function()
+    local nr = vim.fn.winnr()
+    return vim.fn.winnr("j") ~= nr or vim.fn.winnr("k") ~= nr
+  end)
+end
+
+local function set_fixed_height(win, height)
+  if visible_window(win) and has_vertical_neighbor(win) then
+    local m = M._minimized[win]
+    if m and m.dir == "height" then height = MINIMIZED_HEIGHT end
+    fixed_wins[win] = true
+    pcall(vim.api.nvim_win_set_height, win, height)
+  end
+end
+
+-- Single source of truth for panel sizes in every workspace mode.
+-- Fixed-size panels are set first; the agent (agent mode) or the planner
+-- (plan mode) then takes the remaining columns.
+local apply_panel_sizes
+local base_cmdheight = nil
+
+resize_panels = function()
+  base_cmdheight = base_cmdheight or vim.o.cmdheight
+  fixed_wins = {}
+  local released = {}
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if vim.wo[win].winfixwidth or vim.wo[win].winfixheight then
+      released[win] = { vim.wo[win].winfixwidth, vim.wo[win].winfixheight }
+      vim.wo[win].winfixwidth = false
+      vim.wo[win].winfixheight = false
     end
   end
-  if visible_window(agent_win) then
-    pcall(vim.api.nvim_win_set_width, agent_win, agent_width)
+
+  local ok, err = pcall(apply_panel_sizes)
+
+  for win, fix in pairs(released) do
+    if vim.api.nvim_win_is_valid(win) then
+      vim.wo[win].winfixwidth = fix[1]
+      vim.wo[win].winfixheight = fix[2]
+    end
   end
+  for win in pairs(fixed_wins) do
+    if vim.api.nvim_win_is_valid(win) then
+      vim.wo[win].winfixwidth = true
+    end
+  end
+  if visible_window(planner_win) and current_workspace_mode == "plan" then
+    vim.wo[planner_win].winfixwidth = false
+  end
+  -- Safety net: never let a layout change leave a giant command line behind
+  if vim.o.cmdheight > base_cmdheight then
+    vim.o.cmdheight = base_cmdheight
+  end
+  if not ok then error(err) end
+end
+
+apply_panel_sizes = function()
+  calculate_panel_widths()
+  local mode = current_workspace_mode
+  local neo_win = find_neo_tree_win()
+
+  set_fixed_width(neo_win, explorer_width)
+  for _, win in ipairs({ threads_win, skills_win, keymaps_win }) do
+    set_fixed_width(win, threads_width)
+  end
+  set_fixed_width(req_win, requirements_width)
+
+  if visible_window(agent_win) then
+    local width = agent_width
+    if mode == "agent" and not find_editor_window() then
+      -- No file buffers: the agent takes all space between threads and explorer
+      width = vim.o.columns - 1
+      if visible_window(threads_win) then width = width - vim.api.nvim_win_get_width(threads_win) - 1 end
+      if visible_window(neo_win) then width = width - vim.api.nvim_win_get_width(neo_win) - 1 end
+    end
+    set_fixed_width(agent_win, math.max(panel_limits.agent.floor, width))
+  end
+
+  if visible_window(planner_win) then
+    if mode == "full" then
+      set_fixed_height(planner_win, clamp(vim.o.lines * 0.25, 8, 15)) -- honours minimize
+    else
+      -- Plan mode: the planner fills the columns left between its neighbours
+      local width = vim.o.columns - 1
+      for _, win in ipairs({ agent_win, req_win, neo_win }) do
+        if visible_window(win) then width = width - vim.api.nvim_win_get_width(win) - 1 end
+      end
+      pcall(vim.api.nvim_win_set_width, planner_win, math.max(20, width))
+    end
+  end
+
+  -- Agent column next to the explorer in edit mode
+  set_fixed_width(agent_explorer_win, agent_width)
 
   if visible_window(threads_win) and visible_window(skills_win) and visible_window(keymaps_win) then
     local total_height = vim.api.nvim_win_get_height(threads_win) + vim.api.nvim_win_get_height(skills_win) + vim.api.nvim_win_get_height(keymaps_win)
     if total_height > 1 then
-      local skills_h = math.max(1, math.floor(total_height * skills_height_ratio))
-      local keymaps_h = math.min(keymaps_height, total_height - skills_h - 1)
-      keymaps_h = math.max(1, keymaps_h)
-      local threads_h = total_height - skills_h - keymaps_h
-      threads_h = math.max(1, threads_h)
-      pcall(vim.api.nvim_win_set_height, threads_win, threads_h)
-      pcall(vim.api.nvim_win_set_height, skills_win, skills_h)
-      pcall(vim.api.nvim_win_set_height, keymaps_win, keymaps_h)
+      local function minimized(win) return M._minimized[win] and M._minimized[win].dir == "height" end
+      local skills_h = minimized(skills_win) and MINIMIZED_HEIGHT or clamp(total_height * skills_height_ratio, 4, 12)
+      local keymaps_h = minimized(keymaps_win) and MINIMIZED_HEIGHT or clamp(total_height * 0.25, 5, keymaps_height)
+      local threads_h = minimized(threads_win) and MINIMIZED_HEIGHT
+        or math.max(6, total_height - skills_h - keymaps_h)
+      -- Whatever a minimized Threads frees goes to Skills (then Keymaps)
+      local spare = total_height - threads_h - skills_h - keymaps_h
+      if spare > 0 then
+        if not minimized(skills_win) then skills_h = skills_h + spare
+        elseif not minimized(keymaps_win) then keymaps_h = keymaps_h + spare end
+      end
+      set_fixed_height(skills_win, skills_h)
+      set_fixed_height(keymaps_win, keymaps_h)
+      set_fixed_height(threads_win, threads_h)
     end
   end
+end
+
+-- ─── Minimize / restore windows ────────────────────────────────────────────
+-- A minimized window collapses to a thin strip (3 columns, or 1 row when it is
+-- stacked with other windows in its column). Its buffer is swapped for a small
+-- placeholder, so nothing is lost: terminals keep running (and keep their size),
+-- panels keep their state. Entering the strip (Alt+q, mouse, <CR>) restores it.
+
+local function window_title(win, buf)
+  if buf == threads_buf then return "Threads", nf.thread end
+  if buf == skills_buf then return "Skills", nf.wrench end
+  if buf == keymaps_buf then return "Keymaps", nf.search end
+  if buf == agent_buf or win == agent_win or win == agent_explorer_win then
+    local provider = vim.b[buf].agent_provider or current_provider
+    for _, p in ipairs(providers) do
+      if p.name == provider then return p.name, nf.normalize(p.icon) end
+    end
+    return "Agent", nf.agent or nf.generic
+  end
+  if win == planner_win then return "Planner", nf.task_list end
+  if win == req_win then return "Requirements", nf.task_criteria end
+  local ft = vim.bo[buf].filetype
+  if ft == "neo-tree" then return "Explorer", nf.explorer_files end
+  if vim.bo[buf].buftype == "terminal" then return "Terminal", nf.lualine_finder end
+  local name = vim.api.nvim_buf_get_name(buf)
+  return name ~= "" and vim.fn.fnamemodify(name, ":t") or "[No Name]", nf.file_default
+end
+
+local function placeholder_lines(state)
+  if state.dir == "height" then
+    return { string.format(" %s %s %s  ·  minimized  ·  <CR> restore", nf.win_minimize, state.icon, state.title) }
+  end
+  local lines = { " " .. state.icon, "" }
+  for _, ch in ipairs(vim.fn.split(state.title, "\\zs")) do
+    table.insert(lines, " " .. ch)
+  end
+  return lines
+end
+
+function M.is_minimized(win)
+  return M._minimized[win or vim.api.nvim_get_current_win()] ~= nil
+end
+
+function M.restore_window(win, opts)
+  opts = opts or {}
+  win = win or vim.api.nvim_get_current_win()
+  local state = M._minimized[win]
+  if not state then return end
+  M._minimized[win] = nil
+  if vim.api.nvim_win_is_valid(win) then
+    if not state.keep_buf and state.buf and vim.api.nvim_buf_is_valid(state.buf) then
+      vim.api.nvim_win_set_buf(win, state.buf)
+    end
+    if not state.keep_buf then vim.wo[win].winbar = state.winbar or "" end
+    vim.wo[win].winfixwidth = state.fixw
+    vim.wo[win].winfixheight = state.fixh
+    if state.dir == "width" then
+      pcall(vim.api.nvim_win_set_width, win, state.size)
+    else
+      pcall(vim.api.nvim_win_set_height, win, state.size)
+    end
+  end
+  if state.buf and vim.api.nvim_buf_is_valid(state.buf) then
+    vim.bo[state.buf].bufhidden = state.bufhidden
+  end
+  if state.placeholder and vim.api.nvim_buf_is_valid(state.placeholder) then
+    pcall(vim.api.nvim_buf_delete, state.placeholder, { force = true })
+  end
+  if not opts.no_resize then vim.schedule(resize_panels) end
+  -- Terminals: land in insert mode, like focusing them normally
+  if opts.focus ~= false and vim.api.nvim_win_is_valid(win) and vim.api.nvim_get_current_win() == win
+    and vim.bo[vim.api.nvim_win_get_buf(win)].buftype == "terminal" then
+    vim.cmd.startinsert()
+  end
+end
+
+function M.restore_all()
+  for win in pairs(vim.deepcopy(M._minimized)) do
+    M.restore_window(win, { no_resize = true, focus = false })
+  end
+  vim.schedule(resize_panels)
+end
+
+function M.minimize_window(win)
+  win = win or vim.api.nvim_get_current_win()
+  if M._minimized[win] or not vim.api.nvim_win_is_valid(win) then return end
+  if vim.api.nvim_win_get_config(win).relative ~= "" then return end
+  local normal = vim.tbl_filter(function(w)
+    return vim.api.nvim_win_get_config(w).relative == "" and not M._minimized[w]
+  end, vim.api.nvim_tabpage_list_wins(0))
+  if #normal <= 1 then
+    vim.notify("Can't minimize the only window", vim.log.levels.WARN)
+    return
+  end
+
+  local buf = vim.api.nvim_win_get_buf(win)
+  local title, icon = window_title(win, buf)
+  local dir = has_vertical_neighbor(win) and "height" or "width"
+  local state = {
+    dir = dir, buf = buf, title = title, icon = icon,
+    size = dir == "width" and vim.api.nvim_win_get_width(win) or vim.api.nvim_win_get_height(win),
+    winbar = vim.wo[win].winbar, fixw = vim.wo[win].winfixwidth, fixh = vim.wo[win].winfixheight,
+    bufhidden = vim.bo[buf].bufhidden,
+  }
+  -- Neo-tree refuses foreign buffers in its window (it moves them to a new
+  -- split), so it is only shrunk, keeping its own buffer.
+  state.keep_buf = vim.bo[buf].filetype == "neo-tree"
+  if state.keep_buf then
+    M._minimized[win] = state
+    if dir == "width" then
+      vim.wo[win].winfixwidth = true
+      pcall(vim.api.nvim_win_set_width, win, MINIMIZED_WIDTH)
+    else
+      vim.wo[win].winfixheight = true
+      pcall(vim.api.nvim_win_set_height, win, MINIMIZED_HEIGHT)
+    end
+    if vim.api.nvim_get_current_win() == win then
+      vim.g.lenn_minimize_switching = true
+      vim.cmd("wincmd p")
+      if vim.api.nvim_get_current_win() == win then vim.cmd("wincmd h") end
+      vim.g.lenn_minimize_switching = false
+    end
+    vim.schedule(resize_panels)
+    return
+  end
+
+  -- Keep the real buffer alive while it is out of the window
+  vim.bo[buf].bufhidden = "hide"
+
+  local ph = vim.api.nvim_create_buf(false, true)
+  vim.bo[ph].bufhidden = "wipe"
+  vim.bo[ph].filetype = "lenn-minimized"
+  vim.b[ph].agent_panel_placeholder = true
+  vim.api.nvim_buf_set_lines(ph, 0, -1, false, placeholder_lines(state))
+  vim.bo[ph].modifiable = false
+  vim.api.nvim_buf_add_highlight(ph, -1, "AgentMinimized", 0, 0, -1)
+  for i = 2, vim.api.nvim_buf_line_count(ph) do
+    vim.api.nvim_buf_add_highlight(ph, -1, "Comment", i - 1, 0, -1)
+  end
+  for _, key in ipairs({ "<CR>", "o", "l", "<2-LeftMouse>" }) do
+    vim.keymap.set("n", key, function() M.restore_window(win) end, { buffer = ph, nowait = true, desc = "Restore window" })
+  end
+  state.placeholder = ph
+  M._minimized[win] = state
+
+  vim.api.nvim_win_set_buf(win, ph)
+  local wo = vim.wo[win][0]
+  wo.number, wo.relativenumber, wo.signcolumn = false, false, "no"
+  wo.cursorline, wo.foldcolumn, wo.wrap = false, "0", false
+  vim.wo[win].winbar = ""
+  if dir == "width" then
+    vim.wo[win].winfixwidth = true
+    pcall(vim.api.nvim_win_set_width, win, MINIMIZED_WIDTH)
+  else
+    vim.wo[win].winfixheight = true
+    pcall(vim.api.nvim_win_set_height, win, MINIMIZED_HEIGHT)
+  end
+
+  -- Leave the strip: go back to the previous window (or any other one)
+  if vim.api.nvim_get_current_win() == win then
+    local prev = vim.fn.win_getid(vim.fn.winnr("#"))
+    if prev == 0 or prev == win or M._minimized[prev] or not vim.api.nvim_win_is_valid(prev) then
+      prev = nil
+      for _, w in ipairs(normal) do
+        if w ~= win then prev = w; break end
+      end
+    end
+    if prev then
+      vim.g.lenn_minimize_switching = true
+      vim.api.nvim_set_current_win(prev)
+      vim.g.lenn_minimize_switching = false
+    end
+  end
+  vim.schedule(resize_panels)
+end
+
+function M.toggle_minimize(win)
+  win = win or vim.api.nvim_get_current_win()
+  if M._minimized[win] then M.restore_window(win) else M.minimize_window(win) end
+end
+
+-- Entering a minimized strip restores it; closing it cleans up its state.
+vim.api.nvim_create_autocmd("WinEnter", {
+  group = vim.api.nvim_create_augroup("LennMinimizedWindows", { clear = true }),
+  callback = function()
+    if vim.g.lenn_minimize_switching then return end
+    local win = vim.api.nvim_get_current_win()
+    if M._minimized[win] then vim.schedule(function() M.restore_window(win) end) end
+  end,
+})
+vim.api.nvim_create_autocmd("WinClosed", {
+  group = "LennMinimizedWindows",
+  callback = function(args)
+    local win = tonumber(args.match)
+    local state = win and M._minimized[win]
+    if not state then return end
+    M._minimized[win] = nil
+    if state.buf and vim.api.nvim_buf_is_valid(state.buf) then vim.bo[state.buf].bufhidden = state.bufhidden end
+  end,
+})
+
+function M.explorer_width()
+  calculate_panel_widths()
+  -- Edgy asks for the explorer width on every layout: honour a minimized tree
+  for win, state in pairs(M._minimized) do
+    if state.keep_buf and state.dir == "width" and vim.api.nvim_win_is_valid(win) then
+      return MINIMIZED_WIDTH
+    end
+  end
+  return explorer_width
 end
 
 local last_editor_win = nil
@@ -998,6 +1440,7 @@ local function is_editor_window(win)
   end
 
   local buf = vim.api.nvim_win_get_buf(win)
+  if vim.b[buf].lenn_start_screen then return true end -- start screen placeholder
   return vim.bo[buf].buftype == "" and vim.bo[buf].filetype ~= "neo-tree"
 end
 
@@ -1017,7 +1460,7 @@ local function panel_restore_buffer(win)
     buf = skills_buf
   elseif win == keymaps_win then
     buf = keymaps_buf
-  elseif win == agent_win then
+  elseif win == agent_win or win == agent_explorer_win then
     buf = current_term and current_term.bufnr or agent_buf
   end
   return buf and vim.api.nvim_buf_is_valid(buf) and buf or nil
@@ -1033,7 +1476,7 @@ local function keep_file_out_of_panel(args)
   end
 
   local panel_win
-  for _, win in pairs({ threads_win, skills_win, keymaps_win, agent_win }) do
+  for _, win in pairs({ threads_win, skills_win, keymaps_win, agent_win, agent_explorer_win }) do
     if win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
       panel_win = win
       break
@@ -1044,18 +1487,13 @@ local function keep_file_out_of_panel(args)
   routing_buffers[buf] = true
   local editor_win
   local ok, err = pcall(function()
-    editor_win = find_editor_window(panel_win)
-    if not editor_win then
-      vim.cmd("rightbelow vsplit")
-      editor_win = vim.api.nvim_get_current_win()
-      vim.wo[editor_win].winfixwidth = false
-      vim.wo[editor_win].winfixheight = false
-    end
-
     local restore_buf = panel_restore_buffer(panel_win)
-    vim.api.nvim_win_set_buf(editor_win, buf)
-    vim.wo[editor_win].number = true
-    vim.wo[editor_win].relativenumber = true
+    editor_win = find_editor_window(panel_win)
+    if editor_win then
+      vim.api.nvim_win_set_buf(editor_win, buf)
+    else
+      editor_win = open_center_window(buf)
+    end
     if restore_buf and restore_buf ~= buf then
       vim.api.nvim_win_set_buf(panel_win, restore_buf)
     end
@@ -1092,7 +1530,9 @@ vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter", "TermOpen", "TermEnter"
   end,
 })
 
-vim.api.nvim_create_autocmd("VimResized", {
+-- Keep sizes consistent when the screen changes or a window closes
+-- (closing a split would otherwise hand its space to a random panel).
+vim.api.nvim_create_autocmd({ "VimResized", "WinClosed" }, {
   group = vim.api.nvim_create_augroup("LennAgentPanelResize", { clear = true }),
   callback = function()
     vim.schedule(resize_panels)
@@ -1114,160 +1554,305 @@ local function project_name(path)
   return vim.fn.fnamemodify(path or vim.fn.getcwd(), ":t")
 end
 
-local function collect_threads(cb)
-  -- Collect threads from ALL projects, grouped by project directory.
-  -- Each thread includes `cwd` so render_threads can group them.
-  local all_threads = {}
-  local completed = 0
-  local total = 4 -- Codex, OpenCode, Kiro, Junie
+-- Helpers live in a do-block to stay under LuaJIT's 200-local limit.
+local saved_projects = {}
+local collect_threads
+do
+local uv = vim.uv or vim.loop
 
-  -- Codex threads (file-based, synchronous) — collect from ALL projects
-  local function add_codex()
-    local home = vim.env.CODEX_HOME or vim.fn.expand("~/.codex")
-    local paths = vim.fn.globpath(home .. "/sessions", "**/rollout-*.jsonl", false, true)
-    table.sort(paths, function(a, b)
-      local sa = (vim.uv or vim.loop).fs_stat(a)
-      local sb = (vim.uv or vim.loop).fs_stat(b)
-      return (sa and sa.mtime.sec or 0) > (sb and sb.mtime.sec or 0)
-    end)
-    for _, path in ipairs(paths) do
-      if #all_threads >= 100 then break end
-      local read_ok, content = pcall(vim.fn.readfile, path, "", 1)
-      if read_ok and content[1] then
-        local ok, meta = pcall(vim.json.decode, content[1])
-        if ok and type(meta) == "table" then
-          local payload = meta.payload
-          if payload and payload.id and payload.cwd then
-            table.insert(all_threads, {
-              provider = "Codex",
-              icon = nf.codex,
-              id = payload.id,
-              cwd = payload.cwd,
-              title = string.format("%s · %s", project_name(payload.cwd), payload.id:sub(-8)),
-            })
-          end
-        end
-      end
-    end
-    completed = completed + 1
-    if completed == total then cb(all_threads) end
-  end
-
-  -- OpenCode threads (async via jobstart) — collect from ALL projects
-  local opencode_data = {}
-  vim.fn.jobstart({ "opencode", "session", "list", "--max-count", "100", "--format", "json" }, {
-    stdout_buffered = true,
-    on_stdout = function(_, data)
-      opencode_data = vim.list_extend(opencode_data, data or {})
-    end,
-    on_exit = function(_, code)
-      vim.schedule(function()
-        if code == 0 and #opencode_data > 0 then
-          local json_str = table.concat(opencode_data, "\n")
-          local ok, sessions = pcall(vim.json.decode, json_str)
-          if ok and type(sessions) == "table" then
-            for _, s in ipairs(sessions) do
-              local dir = s.directory or (s.location and s.location.directory) or ""
-              if dir ~= "" and s.id then
-                table.insert(all_threads, {
-                  provider = "OpenCode",
-                  icon = nf.opencode,
-                  id = s.id,
-                  cwd = dir,
-                  title = s.title or s.id,
-                })
-              end
-            end
-          end
-        end
-        completed = completed + 1
-        if completed == total then cb(all_threads) end
-      end)
-    end,
-  })
-
-  -- Kiro threads (async via jobstart) — collect from ALL projects
-  local kiro_data = {}
-  vim.fn.jobstart({ "kiro-cli", "chat", "--list-sessions", "--format", "json" }, {
-    stdout_buffered = true,
-    on_stdout = function(_, data)
-      kiro_data = vim.list_extend(kiro_data, data or {})
-    end,
-    on_exit = function(_, code)
-      vim.schedule(function()
-        if code == 0 and #kiro_data > 0 then
-          local json_str = table.concat(kiro_data, "\n")
-          local ok, cwds = pcall(vim.json.decode, json_str)
-          if ok and type(cwds) == "table" then
-            for _, envelope in ipairs(cwds) do
-              if type(envelope.sessions) == "table" then
-                local dir = envelope.cwd or ""
-                for _, s in ipairs(envelope.sessions) do
-                  if s.sessionId and dir ~= "" then
-                    table.insert(all_threads, {
-                      provider = "Kiro",
-                      icon = nf.kiro,
-                      id = s.sessionId,
-                      cwd = dir,
-                      title = s.title or s.sessionId,
-                    })
-                  end
-                end
-              end
-            end
-          end
-        end
-        completed = completed + 1
-        if completed == total then cb(all_threads) end
-      end)
-    end,
-  })
-
-  -- Junie threads (file-based, synchronous) — collect from ALL projects
-  local function add_junie()
-    local home = vim.env.JUNIE_HOME or vim.fn.expand("~/.junie")
-    local index_file = home .. "/sessions/index.jsonl"
-    local stat = (vim.uv or vim.loop).fs_stat(index_file)
-    if stat then
-      local read_ok, lines = pcall(vim.fn.readfile, index_file)
-      if read_ok then
-        for _, line in ipairs(lines) do
-          if #all_threads >= 100 then break end
-          if type(line) == "string" and line:len() > 0 then
-            local ok, meta = pcall(vim.json.decode, line)
-            if ok and type(meta) == "table" then
-              local sessionId = meta.sessionId
-              local projectDir = meta.projectDir or ""
-              local taskName = meta.taskName or sessionId
-              if sessionId and projectDir ~= "" then
-                table.insert(all_threads, {
-                  provider = "Junie",
-                  icon = nf.junie,
-                  id = sessionId,
-                  cwd = projectDir,
-                  title = taskName,
-                })
-              end
-            end
-          end
-        end
-      end
-    end
-    completed = completed + 1
-    if completed == total then cb(all_threads) end
-  end
-
-  -- Codex is synchronous, run it immediately
-  add_codex()
-  -- Junie is also synchronous
-  add_junie()
+local function normalize_dir(path)
+  if type(path) ~= "string" or path == "" then return nil end
+  path = vim.fn.fnamemodify(vim.fn.expand(path), ":p")
+  if #path > 1 then path = path:gsub("/+$", "") end
+  return path
 end
+
+-- Convert an ISO-8601 UTC timestamp ("2026-11-15T04:39:20.523Z") to epoch seconds.
+local function iso_to_epoch(value)
+  if type(value) ~= "string" then return 0 end
+  local y, mo, d, h, mi, s = value:match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+  if not y then return 0 end
+  local t = os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d),
+    hour = tonumber(h), min = tonumber(mi), sec = tonumber(s), isdst = false })
+  local utc_offset = os.time() - os.time(os.date("!*t"))
+  return t + utc_offset
+end
+
+-- Read at most `max` lines of a file without loading the whole thing.
+local function read_head(path, max)
+  local f = io.open(path, "r")
+  if not f then return {} end
+  local lines = {}
+  for line in f:lines() do
+    table.insert(lines, line)
+    if #lines >= max then break end
+  end
+  f:close()
+  return lines
+end
+
+-- ─── Saved projects (shown even when they have no threads yet) ─────────────
+
+local saved_projects_file = vim.fn.stdpath("data") .. "/lenn-agent-projects.json"
+
+function saved_projects.load()
+  local ok, lines = pcall(vim.fn.readfile, saved_projects_file)
+  if not ok or not lines or #lines == 0 then return {} end
+  local decoded_ok, list = pcall(vim.json.decode, table.concat(lines, "\n"))
+  if not decoded_ok or type(list) ~= "table" then return {} end
+  local result = {}
+  for _, path in ipairs(list) do
+    local dir = normalize_dir(path)
+    if dir then table.insert(result, dir) end
+  end
+  return result
+end
+
+local function write_saved_projects(list)
+  vim.fn.mkdir(vim.fn.fnamemodify(saved_projects_file, ":h"), "p")
+  pcall(vim.fn.writefile, { vim.json.encode(list) }, saved_projects_file)
+end
+
+function saved_projects.add(path)
+  local dir = normalize_dir(path)
+  if not dir then return nil end
+  local list = saved_projects.load()
+  for _, existing in ipairs(list) do
+    if existing == dir then return dir end
+  end
+  table.insert(list, dir)
+  write_saved_projects(list)
+  return dir
+end
+
+function saved_projects.remove(path)
+  local dir = normalize_dir(path)
+  local list, removed = {}, false
+  for _, existing in ipairs(saved_projects.load()) do
+    if existing == dir then removed = true else table.insert(list, existing) end
+  end
+  if removed then write_saved_projects(list) end
+  return removed
+end
+
+-- ─── Per-provider collectors ───────────────────────────────────────────────
+-- Every collector reads sessions from ALL projects (not only the current cwd)
+-- and returns { provider, icon, id, cwd, title, updated } entries.
+
+local MAX_PER_PROVIDER = 150
+
+local function collect_codex()
+  local result = {}
+  local home = vim.env.CODEX_HOME or vim.fn.expand("~/.codex")
+  local paths = vim.fn.globpath(home .. "/sessions", "**/rollout-*.jsonl", false, true)
+  local mtimes = {}
+  for _, path in ipairs(paths) do
+    local st = uv.fs_stat(path)
+    mtimes[path] = st and st.mtime.sec or 0
+  end
+  table.sort(paths, function(a, b) return mtimes[a] > mtimes[b] end)
+  for _, path in ipairs(paths) do
+    if #result >= MAX_PER_PROVIDER then break end
+    local first = read_head(path, 1)[1]
+    local ok, meta = pcall(vim.json.decode, first or "")
+    local payload = ok and type(meta) == "table" and meta.payload or nil
+    if type(payload) == "table" and payload.id and payload.cwd then
+      table.insert(result, {
+        provider = "Codex",
+        icon = nf.codex,
+        id = payload.id,
+        cwd = normalize_dir(payload.cwd),
+        title = string.format("%s · %s", project_name(payload.cwd), payload.id:sub(-8)),
+        updated = mtimes[path],
+      })
+    end
+  end
+  return result
+end
+
+local function collect_junie()
+  local result = {}
+  local home = vim.env.JUNIE_HOME or vim.fn.expand("~/.junie")
+  local ok, lines = pcall(vim.fn.readfile, home .. "/sessions/index.jsonl")
+  if not ok then return result end
+  for _, line in ipairs(lines) do
+    if line ~= "" then
+      local decoded, meta = pcall(vim.json.decode, line)
+      if decoded and type(meta) == "table" and meta.sessionId and meta.projectDir and meta.projectDir ~= "" then
+        table.insert(result, {
+          provider = "Junie",
+          icon = nf.junie,
+          id = meta.sessionId,
+          cwd = normalize_dir(meta.projectDir),
+          title = meta.taskName or meta.sessionId,
+          updated = math.floor((tonumber(meta.updatedAt) or tonumber(meta.createdAt) or 0) / 1000),
+        })
+      end
+    end
+  end
+  table.sort(result, function(a, b) return a.updated > b.updated end)
+  while #result > MAX_PER_PROVIDER do table.remove(result) end
+  return result
+end
+
+-- Kiro: `kiro-cli chat --list-sessions` only lists the current directory (and
+-- --all-cwds currently returns nothing), so read the session store directly.
+local function collect_kiro()
+  local result = {}
+  local home = vim.env.KIRO_HOME or vim.fn.expand("~/.kiro")
+  for _, path in ipairs(vim.fn.glob(home .. "/sessions/*/sess_*/session.json", false, true)) do
+    local ok, lines = pcall(vim.fn.readfile, path)
+    if ok and #lines > 0 then
+      local decoded, s = pcall(vim.json.decode, table.concat(lines, "\n"))
+      if decoded and type(s) == "table" and s.id then
+        local dir = (type(s.rootPaths) == "table" and s.rootPaths[1])
+          or (type(s.workspacePaths) == "table" and s.workspacePaths[1])
+        dir = normalize_dir(dir)
+        if dir then
+          table.insert(result, {
+            provider = "Kiro",
+            icon = nf.kiro,
+            id = s.id,
+            cwd = dir,
+            title = (s.title and s.title ~= "") and s.title or s.id,
+            updated = iso_to_epoch(s.lastModifiedAt or s.createdAt),
+          })
+        end
+      end
+    end
+  end
+  table.sort(result, function(a, b) return a.updated > b.updated end)
+  while #result > MAX_PER_PROVIDER do table.remove(result) end
+  return result
+end
+
+-- Claude Code: ~/.claude/projects/<slug>/<session-id>.jsonl
+local function claude_prompt_text(content)
+  if type(content) == "string" then return content end
+  if type(content) == "table" then
+    for _, part in ipairs(content) do
+      if type(part) == "table" and part.type == "text" and type(part.text) == "string" then
+        return part.text
+      end
+    end
+  end
+  return nil
+end
+
+local function collect_claude()
+  local result = {}
+  local home = vim.env.CLAUDE_CONFIG_DIR or vim.fn.expand("~/.claude")
+  local paths = vim.fn.glob(home .. "/projects/*/*.jsonl", false, true)
+  local mtimes = {}
+  for _, path in ipairs(paths) do
+    local st = uv.fs_stat(path)
+    mtimes[path] = st and st.mtime.sec or 0
+  end
+  table.sort(paths, function(a, b) return mtimes[a] > mtimes[b] end)
+  for _, path in ipairs(paths) do
+    if #result >= MAX_PER_PROVIDER then break end
+    local id = vim.fn.fnamemodify(path, ":t:r")
+    local cwd, title, prompt
+    for _, line in ipairs(read_head(path, 80)) do
+      local ok, entry = pcall(vim.json.decode, line)
+      if ok and type(entry) == "table" then
+        if not cwd and type(entry.cwd) == "string" then cwd = entry.cwd end
+        if entry.type == "custom-title" and entry.customTitle then title = entry.customTitle end
+        if entry.type == "ai-title" and entry.aiTitle and not title then title = entry.aiTitle end
+        if entry.type == "summary" and entry.summary and not title then title = entry.summary end
+        if not prompt and entry.type == "user" and not entry.isMeta and type(entry.message) == "table" then
+          local text = claude_prompt_text(entry.message.content)
+          if text and not text:match("^%s*<") then prompt = text end
+        end
+      end
+      if cwd and title then break end
+    end
+    -- Skip empty sessions (no prompt and no title): nothing to resume.
+    if cwd and (title or prompt) then
+      title = (title or prompt):gsub("%s+", " ")
+      if #title > 80 then title = title:sub(1, 77) .. "..." end
+      table.insert(result, {
+        provider = "Claude Code",
+        icon = nf.claude,
+        id = id,
+        cwd = normalize_dir(cwd),
+        title = title,
+        updated = mtimes[path],
+      })
+    end
+  end
+  return result
+end
+
+-- OpenCode: `opencode session list` is scoped to the current project, so query
+-- its SQLite store directly; fall back to the CLI when sqlite3 is missing.
+local function collect_opencode(cb)
+  local data_home = vim.env.XDG_DATA_HOME or vim.fn.expand("~/.local/share")
+  local db = data_home .. "/opencode/opencode.db"
+  local use_sqlite = vim.fn.executable("sqlite3") == 1 and uv.fs_stat(db) ~= nil
+  local cmd
+  if use_sqlite then
+    cmd = { "sqlite3", "-readonly", "-json", db,
+      "select id, title, directory, time_updated from session_v2 "
+        .. "where parent_id is null and time_archived is null "
+        .. "order by time_updated desc limit " .. MAX_PER_PROVIDER }
+  elseif vim.fn.executable("opencode") == 1 then
+    cmd = { "opencode", "session", "list", "--max-count", tostring(MAX_PER_PROVIDER), "--format", "json" }
+  else
+    return cb({})
+  end
+  local output = {}
+  local job = vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    on_stdout = function(_, data) output = data or {} end,
+    on_exit = function(_, code)
+      vim.schedule(function()
+        local result = {}
+        local ok, sessions = pcall(vim.json.decode, table.concat(output, "\n"))
+        if code == 0 and ok and type(sessions) == "table" then
+          for _, s in ipairs(sessions) do
+            local dir = normalize_dir(s.directory or (type(s.location) == "table" and s.location.directory))
+            if dir and s.id then
+              table.insert(result, {
+                provider = "OpenCode",
+                icon = nf.opencode,
+                id = s.id,
+                cwd = dir,
+                title = (s.title and s.title ~= vim.NIL and s.title ~= "") and s.title or s.id,
+                updated = math.floor((tonumber(s.time_updated) or tonumber(s.updated) or 0) / 1000),
+              })
+            end
+          end
+        end
+        cb(result)
+      end)
+    end,
+  })
+  if job <= 0 then cb({}) end
+end
+
+collect_threads = function(cb)
+  -- Collect threads from ALL projects and providers. Each thread includes
+  -- `cwd` (so render_threads can group them) and `updated` (epoch seconds).
+  local all_threads = {}
+  for _, collector in ipairs({ collect_codex, collect_junie, collect_kiro, collect_claude }) do
+    local ok, items = pcall(collector)
+    if ok then vim.list_extend(all_threads, items) end
+  end
+  collect_opencode(function(items)
+    vim.list_extend(all_threads, items)
+    table.sort(all_threads, function(a, b) return (a.updated or 0) > (b.updated or 0) end)
+    cb(all_threads)
+  end)
+end
+end -- do (thread collectors)
 
 -- ─── Threads Panel ──────────────────────────────────────────────────────────
 
 -- Screen rows map to either a thread entry or a project directory.
 local thread_row_map = {}
 local project_row_map = {}
+local action_row_map = {}  -- row -> "add_project"
 local expanded_projects = {}
 
 local function reset_project_expansion()
@@ -1298,107 +1883,171 @@ local function highlight_tabs(ns)
   end
 end
 
+-- ─── Panel line builder (Threads / Tasks) ──────────────────────────────────
+-- Lines are built from highlighted segments, with optional right-aligned info
+-- (counts, relative times) so both tabs share the same look.
+M._ui = {}
+
+function M._ui.rel_time(epoch)
+  if not epoch or epoch <= 0 then return "" end
+  local diff = os.time() - epoch
+  if diff < 60 then return "now" end
+  if diff < 3600 then return math.floor(diff / 60) .. "m" end
+  if diff < 86400 then return math.floor(diff / 3600) .. "h" end
+  if diff < 86400 * 7 then return math.floor(diff / 86400) .. "d" end
+  if diff < 86400 * 30 then return math.floor(diff / (86400 * 7)) .. "w" end
+  return math.floor(diff / (86400 * 30)) .. "mo"
+end
+
+-- Truncate to a display width, adding an ellipsis.
+function M._ui.fit(text, width)
+  text = tostring(text or ""):gsub("[\r\n]+", " ")
+  if width <= 0 then return "" end
+  if vim.fn.strdisplaywidth(text) <= width then return text end
+  local out = vim.fn.strcharpart(text, 0, math.max(0, width - 1))
+  while vim.fn.strdisplaywidth(out) > width - 1 do
+    out = vim.fn.strcharpart(out, 0, vim.fn.strchars(out) - 1)
+  end
+  return out .. "…"
+end
+
+function M._ui.panel_width(buf, fallback)
+  local win = vim.fn.bufwinid(buf)
+  return (win ~= -1 and vim.api.nvim_win_get_width(win) or fallback) - 1
+end
+
+-- builder:add({ {text, hl}, ... }, { text, hl } | nil, line_hl | nil) -> row
+function M._ui.builder(width)
+  local b = { lines = {}, marks = {}, width = width }
+  function b:add(segments, right, line_hl)
+    segments = segments or {}
+    local text, marks = "", {}
+    for _, seg in ipairs(segments) do
+      local start = #text
+      text = text .. seg[1]
+      if seg[2] then table.insert(marks, { start, #text, seg[2] }) end
+    end
+    if right and right[1] ~= "" then
+      local gap = self.width - vim.fn.strdisplaywidth(text) - vim.fn.strdisplaywidth(right[1])
+      if gap >= 1 then
+        text = text .. string.rep(" ", gap)
+        local start = #text
+        text = text .. right[1]
+        if right[2] then table.insert(marks, { start, #text, right[2] }) end
+      end
+    end
+    table.insert(self.lines, text)
+    local row = #self.lines
+    if line_hl then table.insert(self.marks, { row, 0, #text, line_hl, 90 }) end
+    for _, m in ipairs(marks) do table.insert(self.marks, { row, m[1], m[2], m[3], 100 }) end
+    return row
+  end
+  function b:apply(buf, ns)
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, self.lines)
+    vim.bo[buf].modifiable = false
+    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+    for _, m in ipairs(self.marks) do
+      pcall(vim.api.nvim_buf_set_extmark, buf, ns, m[1] - 1, m[2], {
+        end_col = m[3], hl_group = m[4], priority = m[5],
+      })
+    end
+  end
+  return b
+end
+
 local function render_threads(threads)
   if not threads_buf or not vim.api.nvim_buf_is_valid(threads_buf) then return end
   if active_threads_tab ~= "threads" then return end
 
-  -- Group threads by project directory
-  local projects = {}      -- { cwd, name, threads = {} }
-  local project_order = {} -- preserve insertion order
-  local project_map = {}   -- cwd -> project object
-
-  for _, t in ipairs(threads) do
-    local cwd = t.cwd or ""
-    if not project_map[cwd] then
-      local proj = {
-        cwd = cwd,
-        name = project_name(cwd),
-        threads = {},
-      }
-      project_map[cwd] = proj
+  local project_order, project_map = {}, {}
+  local function ensure_project(dir)
+    if not project_map[dir] then
+      local proj = { cwd = dir, name = project_name(dir), threads = {}, updated = 0 }
+      project_map[dir] = proj
       table.insert(project_order, proj)
     end
-    table.insert(project_map[cwd].threads, t)
+    return project_map[dir]
   end
+  for _, t in ipairs(threads) do
+    if t.cwd and t.cwd ~= "" then
+      local proj = ensure_project(t.cwd)
+      table.insert(proj.threads, t)
+      proj.updated = math.max(proj.updated, t.updated or 0)
+    end
+  end
+  -- Projects added manually (A) are listed even before they have threads.
+  for _, dir in ipairs(saved_projects.load()) do ensure_project(dir) end
 
-  -- Sort projects: current project first, then alphabetically
+  -- Current project first, then alphabetically
   local cwd = vim.fn.getcwd()
   table.sort(project_order, function(a, b)
-    local a_is_current = (a.cwd == cwd)
-    local b_is_current = (b.cwd == cwd)
-    if a_is_current and not b_is_current then return true end
-    if not a_is_current and b_is_current then return false end
-    return a.name < b.name
+    if (a.cwd == cwd) ~= (b.cwd == cwd) then return a.cwd == cwd end
+    return a.name:lower() < b.name:lower()
   end)
 
-  -- Sort threads within each project by most recent first (already sorted by collector)
+  local running_ids = {}
+  for _, sess in ipairs(get_running_project_sessions()) do
+    if sess.thread_id then running_ids[sess.thread_id] = true end
+  end
 
-  local lines = { "" }
+  local width = M._ui.panel_width(threads_buf, threads_width)
+  local b = M._ui.builder(width)
+  thread_row_map, project_row_map, action_row_map = {}, {}, {}
 
-  -- Reset row map
-  thread_row_map = {}
-  project_row_map = {}
-
+  b:add({})
   if #project_order == 0 then
-    table.insert(lines, "  No threads found")
-    table.insert(lines, "")
-  else
-    for _, proj in ipairs(project_order) do
-      if expanded_projects[proj.cwd] == nil then
-        expanded_projects[proj.cwd] = false
-      end
-      local is_expanded = expanded_projects[proj.cwd]
-      local disclosure = is_expanded and nf.expanded or nf.active
-      local current_marker = (proj.cwd == cwd) and (nf.dot .. " ") or "  "
-      table.insert(lines, string.format("%s%s %s %s", current_marker, disclosure, nf.project, proj.name))
-      project_row_map[#lines] = proj.cwd
+    b:add({ { "  No threads found", "Comment" } })
+  end
+  for _, proj in ipairs(project_order) do
+    if expanded_projects[proj.cwd] == nil then expanded_projects[proj.cwd] = false end
+    local open = expanded_projects[proj.cwd]
+    local is_current = proj.cwd == cwd
+    local chevron = open and nf.ui_chevron_down or nf.ui_chevron_right
+    local folder = is_current and (open and nf.ui_root_folder_open or nf.ui_root_folder)
+      or (open and nf.ui_folder_open or nf.ui_folder)
+    local count = #proj.threads > 0 and tostring(#proj.threads) or ""
+    local name_hl = is_current and "AgentCurrentProject" or "AgentProjectName"
+    local name = M._ui.fit(proj.name, width - 8 - #count)
+    local row = b:add({
+      { " " .. chevron .. " ", "AgentTreeGuide" },
+      { folder .. " ", is_current and "AgentCurrentProject" or "AgentFolderIcon" },
+      { name, name_hl },
+    }, { count, "AgentBadge" })
+    project_row_map[row] = proj.cwd
 
-      if is_expanded then
-        for _, t in ipairs(proj.threads) do
-          local marker = (t.id == current_thread_id) and (nf.active .. " ") or "  "
-          table.insert(lines, string.format("    %s%s %s", marker, t.icon, t.title))
-          thread_row_map[#lines] = t
-        end
-        table.insert(lines, "") -- blank line between projects
+    if open then
+      if #proj.threads == 0 then
+        b:add({ { "   ╰ ", "AgentTreeGuide" }, { "No threads yet · + to start one", "Comment" } })
       end
+      for i, t in ipairs(proj.threads) do
+        local last = i == #proj.threads
+        local guide = last and "   ╰ " or "   ├ "
+        local time = M._ui.rel_time(t.updated)
+        local running = running_ids[t.id]
+        local active = t.id == current_thread_id
+        local icon_hl = "AgentProvider" .. (t.provider or ""):gsub("%W", "")
+        local title = M._ui.fit(t.title, width - 9 - #time)
+        local title_hl = running and "AgentThreadRunning" or (active and "AgentActiveThread" or nil)
+        local right = running and { nf.dot, "AgentThreadRunning" } or { time, "AgentThreadTime" }
+        row = b:add({
+          { guide, "AgentTreeGuide" },
+          { (t.icon or nf.thread) .. " ", icon_hl },
+          { title, title_hl },
+        }, right)
+        thread_row_map[row] = t
+      end
+      b:add({})
     end
   end
 
-  vim.bo[threads_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(threads_buf, 0, -1, false, lines)
-  vim.bo[threads_buf].modifiable = false
+  -- Footer action: add an existing folder or create a new project
+  if b.lines[#b.lines] ~= "" then b:add({}) end
+  local row = b:add({ { " " .. nf.add .. " ", "AgentAddProject" }, { "Add project", "AgentAddProject" } }, { "A", "AgentBadge" })
+  action_row_map[row] = "add_project"
 
-  -- Highlight active/running thread lines in mauve
-  if threads_buf and vim.api.nvim_buf_is_valid(threads_buf) then
-    local ns = get_threads_ns()
-    vim.api.nvim_buf_clear_namespace(threads_buf, ns, 0, -1)
-
-    -- Build a set of running thread IDs from active sessions
-    local running_thread_ids = {}
-    local sessions = get_running_project_sessions()
-    for _, sess in ipairs(sessions) do
-      if sess.thread_id then
-        running_thread_ids[sess.thread_id] = true
-      end
-    end
-
-    for row, thread in pairs(thread_row_map) do
-      -- Thread with an active/running session gets mauve highlight
-      if running_thread_ids[thread.id] then
-        vim.api.nvim_buf_add_highlight(threads_buf, ns, "AgentThreadRunning", row - 1, 0, -1)
-      -- Currently selected thread (bold, same as before)
-      elseif thread.id == current_thread_id then
-        vim.api.nvim_buf_add_highlight(threads_buf, ns, "AgentActiveThread", row - 1, 0, -1)
-      end
-    end
-    for row, project_cwd in pairs(project_row_map) do
-      if project_cwd == cwd then
-        vim.api.nvim_buf_add_highlight(threads_buf, ns, "AgentCurrentProject", row - 1, 0, -1)
-      end
-    end
-    update_threads_winbar()
-    vim.api.nvim_buf_add_highlight(threads_buf, ns, "Comment", 0, 0, -1)
-  end
+  b:apply(threads_buf, get_threads_ns())
+  update_threads_winbar()
   ensure_cursor_on_content()
 end
 
@@ -2129,122 +2778,117 @@ end
 
 local function render_tasks()
   if not threads_buf or not vim.api.nvim_buf_is_valid(threads_buf) or active_threads_tab ~= "tasks" then return end
-  local lines = {}
   task_row_map = {}
   local cwd = task_project_cwd or vim.fn.getcwd()
-  local status_highlights = {}
-  local task_icon_rows = {}  -- tracks rows with task icons for AgentTaskIcon highlight
+  local width = M._ui.panel_width(threads_buf, threads_width)
+  local b = M._ui.builder(width)
+  local tasks_module = require("lenn.agent-tasks")
+
+  b:add({})
+  b:add({ { " " .. nf.ui_root_folder_open .. " ", "AgentCurrentProject" },
+    { M._ui.fit(project_name(cwd), width - 10), "AgentCurrentProject" } },
+    { "[/]", "AgentBadge" })
 
   if active_task_pill == "local" then
-    table.insert(lines, "")
-    local tasks_module = require("lenn.agent-tasks")
     local local_tasks = tasks_module.local_tasks(cwd)
-    table.insert(lines, string.format("%s %s", nf.project, project_name(cwd)))
     local categories = {
-      { id = "pending", title = "Pending", icon = nf.circle, hl = "AgentTaskPending" },
-      { id = "in_progress", title = "In progress", icon = nf.play, hl = "AgentTaskInProgress" },
-      { id = "completed", title = "Completed", icon = nf.check, hl = "AgentTaskCompleted" },
-      { id = "failed", title = "Failed", icon = nf.close, hl = "AgentTaskFailed" },
-      { id = "archived", title = "Archived", icon = nf.package, hl = "AgentTaskArchived" },
+      { id = "pending", title = "Pending", icon = nf.task_pending, hl = "AgentTaskPending" },
+      { id = "in_progress", title = "In progress", icon = nf.task_progress, hl = "AgentTaskInProgress" },
+      { id = "completed", title = "Completed", icon = nf.task_done, hl = "AgentTaskCompleted" },
+      { id = "failed", title = "Failed", icon = nf.task_failed, hl = "AgentTaskFailed" },
+      { id = "archived", title = "Archived", icon = nf.task_archived, hl = "AgentTaskArchived" },
     }
-    local status_groups = {}
-    for _, category in ipairs(categories) do status_groups[category.id] = {} end
+    local groups = {}
+    for _, category in ipairs(categories) do groups[category.id] = {} end
     for _, task in ipairs(local_tasks) do
       local status = task.status or (task.done and "completed" or "pending")
-      if not status_groups[status] then status = "pending" end
-      table.insert(status_groups[status], task)
+      if not groups[status] then status = "pending" end
+      table.insert(groups[status], task)
     end
-    -- Initialize fold states (archived folded by default)
-    if task_folds.pending == nil then task_folds.pending = false end
-    if task_folds.in_progress == nil then task_folds.in_progress = false end
-    if task_folds.completed == nil then task_folds.completed = false end
-    if task_folds.failed == nil then task_folds.failed = false end
-    if task_folds.archived == nil then task_folds.archived = true end
-
+    -- Fold state: archived folded by default
     for _, category in ipairs(categories) do
-      local is_folded = task_folds[category.id]
-      local fold_icon = is_folded and nf.active or nf.expanded
-      local count = #status_groups[category.id]
-      local fold_note = is_folded and string.format(" (%d)", count) or ""
-      table.insert(lines, string.format("  %s  %s%s", fold_icon, category.title, fold_note))
-      local category_row = #lines
-      task_row_map[category_row] = { kind = "category", category = category.id, cwd = cwd }
-      status_highlights[category_row] = category.hl
+      if task_folds[category.id] == nil then task_folds[category.id] = category.id == "archived" end
+    end
 
-      if not is_folded then
-        for _, task in ipairs(status_groups[category.id]) do
-          local note = ""
+    b:add({})
+    for _, category in ipairs(categories) do
+      local folded = task_folds[category.id]
+      local items = groups[category.id]
+      local row = b:add({
+        { " " .. (folded and nf.ui_chevron_right or nf.ui_chevron_down) .. " ", "AgentTreeGuide" },
+        { category.icon .. " ", category.hl },
+        { category.title, category.hl },
+      }, { tostring(#items), "AgentBadge" })
+      task_row_map[row] = { kind = "category", category = category.id, cwd = cwd }
+
+      if not folded then
+        if #items == 0 then
+          b:add({ { "   ╰ ", "AgentTreeGuide" }, { "empty", "Comment" } })
+        end
+        for i, task in ipairs(items) do
+          local last = i == #items
+          local guide = last and "   ╰ " or "   ├ "
+          local cont = last and "     " or "   │ "
+          local right
           if task.thread then
-            note = task.thread.id and ("  ·  " .. task.thread.provider .. " " .. tostring(task.thread.id):sub(-8))
-              or ("  ·  " .. task.thread.provider .. " thread")
+            local icon = "?"
+            for _, p in ipairs(providers) do
+              if p.name == task.thread.provider then icon = nf.normalize(p.icon) end
+            end
+            right = { icon, "AgentProvider" .. (task.thread.provider or ""):gsub("%W", "") }
           end
-          local row = #lines + 1
-          table.insert(lines, string.format("    %s %s%s", category.icon, task.title, note))
+          row = b:add({
+            { guide, "AgentTreeGuide" },
+            { M._ui.fit(task.title, width - 8), category.id == "archived" and "AgentTaskArchived" or "AgentTaskTitle" },
+          }, right)
           task_row_map[row] = { kind = "local", task = task, cwd = cwd }
-          status_highlights[row] = category.hl
-          task_icon_rows[row] = true
+
+          local details = {}
           if task.acceptance_criteria and task.acceptance_criteria ~= "" then
-            table.insert(lines, "      Meets: " .. shorten_task_text(task.acceptance_criteria, 68))
+            table.insert(details, { nf.task_criteria, task.acceptance_criteria })
           end
           if task.verification_command and task.verification_command ~= "" then
-            table.insert(lines, "      Verify: " .. shorten_task_text(task.verification_command, 68))
+            table.insert(details, { nf.task_verify, task.verification_command })
           end
           if task.last_check then
-            table.insert(lines, string.format("      Last check: exit %s · %s", tostring(task.last_check.exit_code),
-              os.date("%Y-%m-%d %H:%M", task.last_check.checked_at or os.time())))
+            local passed = tonumber(task.last_check.exit_code) == 0
+            table.insert(details, { nf.task_history, string.format("%s exit %s · %s",
+              passed and "pass" or "fail", tostring(task.last_check.exit_code),
+              M._ui.rel_time(task.last_check.checked_at)), passed and "AgentTaskCompleted" or "AgentTaskFailed" })
+          end
+          for _, d in ipairs(details) do
+            b:add({ { cont, "AgentTreeGuide" }, { d[1] .. " ", d[3] or "AgentTaskDetailIcon" },
+              { M._ui.fit(d[2], width - 9), "Comment" } })
           end
         end
-        if count == 0 then table.insert(lines, "    —") end
       end
-      table.insert(lines, "")
     end
   else
-    -- GitHub Issues pill
-    table.insert(lines, "")
-    table.insert(lines, string.format("%s %s", nf.project, project_name(cwd)))
-    table.insert(lines, "")
+    -- GitHub issues pill
+    b:add({})
     if task_issue_message then
-      table.insert(lines, "  " .. task_issue_message)
+      b:add({ { "   " .. nf.github .. " ", "Comment" }, { M._ui.fit(task_issue_message, width - 6), "Comment" } })
     elseif #task_issues == 0 then
-      table.insert(lines, "  No open issues")
+      b:add({ { "   " .. nf.github .. " ", "Comment" }, { "No open issues", "Comment" } })
     end
-    -- Collect tracked local task URLs to mark assigned issues
-    local tracked_issues = {}
-    local tasks_module = require("lenn.agent-tasks")
-    local local_tasks = tasks_module.local_tasks(cwd)
-    for _, task in ipairs(local_tasks) do
-      if task.source_issue_url then tracked_issues[task.source_issue_url] = true end
+    local tracked = {}
+    for _, task in ipairs(tasks_module.local_tasks(cwd)) do
+      if task.source_issue_url then tracked[task.source_issue_url] = true end
     end
     for _, issue in ipairs(task_issues) do
-      local issue_url = issue.html_url or issue.url
-      local is_tracked = tracked_issues[issue_url]
-      local row = #lines + 1
-      local icon = is_tracked and nf.check or nf.circle
-      local tracked_note = is_tracked and "  (tracked)" or ""
-      table.insert(lines, string.format("  %s #%s %s%s", icon, tostring(issue.number), issue.title or "Untitled issue", tracked_note))
+      local is_tracked = tracked[issue.html_url or issue.url]
+      local number = "#" .. tostring(issue.number)
+      local row = b:add({
+        { " " .. (is_tracked and nf.issue_tracked or nf.issue) .. " ", is_tracked and "AgentTaskCompleted" or "AgentTaskPending" },
+        { number .. " ", "AgentBadge" },
+        { M._ui.fit(issue.title or "Untitled issue", width - 6 - #number - (is_tracked and 2 or 0)), "AgentTaskTitle" },
+      }, is_tracked and { nf.check, "AgentTaskCompleted" } or nil)
       task_row_map[row] = { kind = "issue", task = issue, cwd = cwd }
-      status_highlights[row] = is_tracked and "AgentTaskCompleted" or "AgentTaskPending"
     end
   end
 
-  vim.bo[threads_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(threads_buf, 0, -1, false, lines)
-  vim.bo[threads_buf].modifiable = false
+  b:apply(threads_buf, get_threads_ns())
   update_threads_winbar()
-  local ns = get_threads_ns()
-  vim.api.nvim_buf_clear_namespace(threads_buf, ns, 0, -1)
-  -- Highlight the project name line (line 3: help+blank+project)
-  local project_line = 3
-  if project_line <= #lines then
-    vim.api.nvim_buf_add_highlight(threads_buf, ns, "AgentCurrentProject", project_line - 1, 0, -1)
-  end
-  for row, group in pairs(status_highlights) do
-    vim.api.nvim_buf_add_highlight(threads_buf, ns, group, row - 1, 0, -1)
-  end
-  -- Highlight task icons with bright color (icon is at column 4, after 4 spaces of indentation)
-  for row, _ in pairs(task_icon_rows) do
-    vim.api.nvim_buf_add_highlight(threads_buf, ns, "AgentTaskIcon", row - 1, 4, 5)
-  end
   ensure_cursor_on_content()
 end
 
@@ -2686,7 +3330,6 @@ end
 
 -- ─── Keymaps Panel ──────────────────────────────────────────────────────────
 
-local keymaps_buf = nil
 
 -- Keymap definitions for each panel, grouped by section
 local PANEL_KEYMAPS = {
@@ -2699,10 +3342,14 @@ local PANEL_KEYMAPS = {
     actions = {
       { key = "+", desc = "New in project" },
       { key = "<CR>", desc = "Open thread" },
+      { key = "A", desc = "Add/create project" },
+      { key = "D", desc = "Remove saved project" },
       { key = "r", desc = "Refresh" },
     },
     panels = {
       { key = "<Tab>", desc = "Switch Threads/Tasks" },
+      { key = "M-m", desc = "Minimize/restore" },
+      { key = "M-q", desc = "Pick window" },
       { key = "q", desc = "Close panels" },
     },
   },
@@ -2710,7 +3357,7 @@ local PANEL_KEYMAPS = {
     navigation = {
       { key = "j/k", desc = "Move cursor" },
       { key = "p", desc = "Switch pill" },
-      { key = "Space", desc = "Fold/Unfold category" },
+      { key = "za", desc = "Fold/Unfold category" },
       { key = "K", desc = "Task details" },
     },
     actions = {
@@ -3090,6 +3737,116 @@ function M.refresh_threads()
   render_skills()
 end
 
+-- Debounced background refresh of the thread list (used by autocmds).
+local schedule_threads_refresh
+do
+local threads_refresh_timer = nil
+schedule_threads_refresh = function(delay)
+  if not threads_buf or not vim.api.nvim_buf_is_valid(threads_buf) then return end
+  if active_threads_tab ~= "threads" then return end
+  if threads_refresh_timer then threads_refresh_timer:stop() end
+  threads_refresh_timer = vim.defer_fn(function()
+    threads_refresh_timer = nil
+    if vim.fn.bufwinid(threads_buf) == -1 then return end
+    collect_threads(function(threads)
+      threads_data = threads
+      -- Keep the cursor on the same line after re-rendering
+      local win = vim.fn.bufwinid(threads_buf)
+      local cursor = win ~= -1 and vim.api.nvim_win_get_cursor(win) or nil
+      render_threads(threads)
+      if cursor and vim.api.nvim_win_is_valid(win) then
+        local last = vim.api.nvim_buf_line_count(threads_buf)
+        pcall(vim.api.nvim_win_set_cursor, win, { math.min(cursor[1], last), cursor[2] })
+      end
+    end)
+  end, delay or 300)
+end
+
+-- Agents write their sessions to disk while running / on exit, so refresh
+-- when a terminal closes, when nvim regains focus, or when entering the panel.
+vim.api.nvim_create_autocmd({ "TermClose", "FocusGained" }, {
+  group = vim.api.nvim_create_augroup("LennAgentThreadsRefresh", { clear = true }),
+  callback = function() schedule_threads_refresh(800) end,
+})
+
+local function open_project_dir(dir)
+  if vim.fn.isdirectory(dir) ~= 1 then return end
+  if dir ~= vim.fn.getcwd() then vim.cmd("cd " .. vim.fn.fnameescape(dir)) end
+  if pcall(require, "neo-tree") then
+    pcall(vim.api.nvim_command, "Neotree " .. vim.fn.fnameescape(dir))
+  end
+end
+
+local function register_project(dir)
+  dir = saved_projects.add(dir)
+  if not dir then return end
+  expanded_projects[dir] = true
+  open_project_dir(dir)
+  render_threads(threads_data)
+  for row, cwd in pairs(project_row_map) do
+    if cwd == dir then
+      local win = vim.fn.bufwinid(threads_buf)
+      if win ~= -1 then pcall(vim.api.nvim_win_set_cursor, win, { row, 0 }) end
+      break
+    end
+  end
+  vim.notify("Project added: " .. dir, vim.log.levels.INFO)
+end
+
+-- Add an existing folder as a project, or create a new one (optionally git init).
+function M.add_project()
+  local choices = { "Open existing folder", "Create new project folder" }
+  vim.ui.select(choices, { prompt = "Add project" }, function(choice)
+    if not choice then return end
+    if choice == choices[1] then
+      vim.ui.input({ prompt = "Folder: ", default = vim.fn.getcwd() .. "/", completion = "dir" }, function(input)
+        if not input or vim.trim(input) == "" then return end
+        local dir = vim.fn.fnamemodify(vim.fn.expand(vim.trim(input)), ":p"):gsub("/+$", "")
+        if vim.fn.isdirectory(dir) ~= 1 then
+          vim.notify("Not a directory: " .. dir, vim.log.levels.ERROR)
+          return
+        end
+        register_project(dir)
+      end)
+      return
+    end
+    local default_parent = vim.fn.isdirectory(vim.fn.expand("~/Projects")) == 1 and "~/Projects/" or "~/"
+    vim.ui.input({ prompt = "New project path: ", default = default_parent, completion = "dir" }, function(input)
+      if not input or vim.trim(input) == "" then return end
+      local dir = vim.fn.fnamemodify(vim.fn.expand(vim.trim(input)), ":p"):gsub("/+$", "")
+      if vim.fn.isdirectory(dir) == 1 then
+        vim.notify("Folder already exists, adding it: " .. dir, vim.log.levels.WARN)
+        register_project(dir)
+        return
+      end
+      if vim.fn.mkdir(dir, "p") ~= 1 then
+        vim.notify("Could not create " .. dir, vim.log.levels.ERROR)
+        return
+      end
+      vim.ui.select({ "Yes", "No" }, { prompt = "Initialize git repository?" }, function(git)
+        if git == "Yes" and vim.fn.executable("git") == 1 then
+          vim.fn.system({ "git", "-C", dir, "init", "-q" })
+        end
+        register_project(dir)
+      end)
+    end)
+  end)
+end
+
+-- Remove a manually added project (its threads stay listed if it has any).
+function M.remove_project()
+  local row = vim.api.nvim_win_get_cursor(0)[1]
+  local dir = project_row_map[row]
+  if not dir then return end
+  if saved_projects.remove(dir) then
+    render_threads(threads_data)
+    vim.notify("Project removed from list: " .. dir, vim.log.levels.INFO)
+  else
+    vim.notify("Only manually added projects can be removed", vim.log.levels.WARN)
+  end
+end
+end -- do (project actions)
+
 -- Skip empty lines when navigating with j/k or arrow keys
 local function find_nearest_content_line()
   -- Find the last line with content in the buffer
@@ -3259,11 +4016,13 @@ function M.ensure_threads_buf()
   vim.keymap.set("n", "v", function() if active_threads_tab == "tasks" then verify_task() end end,
     { buffer = threads_buf, desc = "Verify task criteria" })
   vim.keymap.set("n", "p", switch_task_pill, { buffer = threads_buf, desc = "Switch Local/GitHub pill" })
-  vim.keymap.set("n", "<Space>", function()
+  -- Not <Space>: a buffer-local <Space> (esp. with nowait) swallows <leader>,
+  -- which broke the workspace keys (<leader>w1..w4) inside this panel.
+  vim.keymap.set("n", "za", function()
     if active_threads_tab == "tasks" and active_task_pill == "local" then
       toggle_task_fold()
     end
-  end, { buffer = threads_buf, desc = "Fold/Unfold task category", nowait = true })
+  end, { buffer = threads_buf, desc = "Fold/Unfold task category" })
   vim.keymap.set("n", ">", function()
     if active_threads_tab == "tasks" then
       if active_task_pill == "github" then
@@ -3283,6 +4042,16 @@ function M.ensure_threads_buf()
   end, { buffer = threads_buf, desc = "Send task / Track issue" })
   vim.keymap.set("n", "<C-n>", M.new_session, { buffer = threads_buf, desc = "New agent session" })
   vim.keymap.set("n", "q", function() M.toggle_threads_only() end, { buffer = threads_buf, desc = "Close Threads panel" })
+  vim.keymap.set("n", "A", function()
+    if active_threads_tab == "threads" then M.add_project() end
+  end, { buffer = threads_buf, desc = "Add / create project" })
+  vim.keymap.set("n", "D", function()
+    if active_threads_tab == "threads" then M.remove_project() end
+  end, { buffer = threads_buf, desc = "Remove saved project" })
+  vim.api.nvim_create_autocmd("BufEnter", {
+    buffer = threads_buf,
+    callback = function() schedule_threads_refresh(200) end,
+  })
   vim.keymap.set("n", "K", show_task_details_float, { buffer = threads_buf, desc = "Show task details" })
 
   -- Keep window height fixed to prevent resizing
@@ -3300,6 +4069,11 @@ end
 
 function M.open_thread()
   local row = vim.api.nvim_win_get_cursor(0)[1]
+
+  if action_row_map[row] == "add_project" then
+    M.add_project()
+    return
+  end
 
   local project_cwd = project_row_map[row]
   if project_cwd then
@@ -3570,21 +4344,160 @@ render_agent_tabs = function()
   vim.wo[agent_win].winbar = table.concat(items, "  ") .. "%="
 end
 
+-- Row -> provider name for the Providers cover (used by <CR> in agent_buf).
+M._provider_rows = {}
+
+-- Providers tab: a centered "cover" listing every provider with its status
+-- (installed / running / thread count for this project). <CR> on a row starts it.
+M._render_providers_cover = function()
+  local cwd = vim.fn.getcwd()
+  local win = vim.fn.bufwinid(agent_buf)
+  local width = win ~= -1 and vim.api.nvim_win_get_width(win) or agent_width
+  local height = win ~= -1 and vim.api.nvim_win_get_height(win) or 30
+  if win ~= -1 then
+    -- The panel split inherits code-window options; the cover needs none of them
+    local wo = vim.wo[win][0]
+    wo.number = false
+    wo.relativenumber = false
+    wo.signcolumn = "no"
+    wo.cursorline = false
+  end
+
+  -- Per-provider stats for the current project
+  local thread_counts, running = {}, {}
+  local norm_cwd = vim.fn.fnamemodify(cwd, ":p"):gsub("/+$", "")
+  for _, t in ipairs(threads_data or {}) do
+    if t.cwd == norm_cwd then thread_counts[t.provider] = (thread_counts[t.provider] or 0) + 1 end
+  end
+  local any_running = false
+  for _, sess in ipairs(get_running_project_sessions()) do
+    if sess.provider then running[sess.provider] = true; any_running = true end
+  end
+
+  local name_w = 0
+  for _, provider in ipairs(providers) do name_w = math.max(name_w, vim.fn.strdisplaywidth(provider.name)) end
+
+  local rows = {} -- { text = , hls = { {group, col_start, col_end} }, provider = }
+  local function add(text, hls, provider) table.insert(rows, { text = text, hls = hls or {}, provider = provider }) end
+
+  local title = any_running and "Agents" or "No agent running"
+  local title_icon = nf.agent or nf.generic
+  add(title_icon .. "  " .. title, { { "AgentCoverTitle", 0, -1 } })
+  add("Pick a provider to start in " .. nf.project .. " " .. project_name(cwd), { { "Comment", 0, -1 } })
+  add("")
+  add("PROVIDERS", { { "AgentCoverSection", 0, -1 } })
+  for _, provider in ipairs(providers) do
+    local exe = vim.split(provider.cmd or "", " ", { trimempty = true })[1]
+    local installed = exe and vim.fn.executable(exe) == 1
+    local icon = nf.normalize(provider.icon)
+    local marker = provider.name == current_provider and nf.active or " "
+    local status, status_hl
+    if not installed then
+      status, status_hl = "not installed", "AgentCoverMissing"
+    elseif running[provider.name] then
+      status, status_hl = nf.dot .. " running", "AgentThreadRunning"
+    elseif (thread_counts[provider.name] or 0) > 0 then
+      local n = thread_counts[provider.name]
+      status, status_hl = string.format("%d thread%s", n, n == 1 and "" or "s"), "Comment"
+    else
+      status, status_hl = "ready", "Comment"
+    end
+    local head = string.format("%s %s  ", marker, icon)
+    local name = provider.name .. string.rep(" ", name_w - vim.fn.strdisplaywidth(provider.name))
+    local text = head .. name .. "   " .. status
+    local icon_start = #marker + 1
+    local name_start = #head
+    add(text, {
+      { "AgentActiveThread", 0, #marker },
+      { installed and ("AgentProvider" .. provider.name:gsub("%W", "")) or "AgentCoverMissing", icon_start, icon_start + #icon },
+      { installed and "Normal" or "AgentCoverMissing", name_start, name_start + #name },
+      { status_hl, name_start + #name + 3, -1 },
+    }, provider.name)
+  end
+  add("")
+  local hints = {
+    { "<CR>", "start" }, { "C-n", "new session" }, { "S-p", "pick" },
+    { "S-m", "market" }, { "Tab", "next tab" }, { "q", "close" },
+  }
+  local hint_line, hint_hls = "", {}
+  for i, h in ipairs(hints) do
+    if i > 1 then hint_line = hint_line .. "  " end
+    table.insert(hint_hls, { "AgentCoverKey", #hint_line, #hint_line + #h[1] })
+    hint_line = hint_line .. h[1] .. " "
+    table.insert(hint_hls, { "Comment", #hint_line, #hint_line + #h[2] })
+    hint_line = hint_line .. h[2]
+  end
+  -- Wrap hints into two lines when the panel is narrow
+  if vim.fn.strdisplaywidth(hint_line) > width - 4 then
+    local first, second = {}, {}
+    for i, h in ipairs(hints) do table.insert(i <= 3 and first or second, h) end
+    for _, group in ipairs({ first, second }) do
+      local line, hls = "", {}
+      for i, h in ipairs(group) do
+        if i > 1 then line = line .. "  " end
+        table.insert(hls, { "AgentCoverKey", #line, #line + #h[1] })
+        line = line .. h[1] .. " "
+        table.insert(hls, { "Comment", #line, #line + #h[2] })
+        line = line .. h[2]
+      end
+      add(line, hls)
+    end
+  else
+    add(hint_line, hint_hls)
+  end
+
+  -- Center the block (top-biased vertically)
+  local block_w = 0
+  for _, r in ipairs(rows) do block_w = math.max(block_w, vim.fn.strdisplaywidth(r.text)) end
+  local left = math.max(2, math.floor((width - block_w) / 2))
+  local top = math.max(1, math.floor((height - #rows) / 3))
+  local pad = string.rep(" ", left)
+
+  local lines = {}
+  for _ = 1, top do table.insert(lines, "") end
+  M._provider_rows = {}
+  local first_provider_row
+  for _, r in ipairs(rows) do
+    table.insert(lines, r.text == "" and "" or (pad .. r.text))
+    if r.provider then
+      M._provider_rows[#lines] = r.provider
+      first_provider_row = first_provider_row or #lines
+    end
+  end
+
+  vim.bo[agent_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(agent_buf, 0, -1, false, lines)
+  vim.bo[agent_buf].modifiable = false
+  local ns = get_threads_ns()
+  vim.api.nvim_buf_clear_namespace(agent_buf, ns, 0, -1)
+  for i, r in ipairs(rows) do
+    local row = top + i - 1
+    for _, hl in ipairs(r.hls) do
+      local col_end = hl[3] == -1 and -1 or (left + hl[3])
+      pcall(vim.api.nvim_buf_add_highlight, agent_buf, ns, hl[1], row, left + hl[2], col_end)
+    end
+  end
+
+  -- Keep the cursor on a provider row
+  if win ~= -1 and first_provider_row then
+    local cur = vim.api.nvim_win_get_cursor(win)[1]
+    if not M._provider_rows[cur] then
+      local target = first_provider_row
+      for row, name in pairs(M._provider_rows) do
+        if name == current_provider then target = row end
+      end
+      pcall(vim.api.nvim_win_set_cursor, win, { target, left })
+    end
+  end
+end
+
 render_agent_panel = function()
   if not agent_buf or not vim.api.nvim_buf_is_valid(agent_buf) then return end
   render_agent_tabs()
   local lines
   if selected_agent_tab == "providers" then
-    lines = {
-      "",
-      "Project: " .. project_name(vim.fn.getcwd()),
-      "",
-      "Available providers:",
-    }
-    for _, provider in ipairs(providers) do
-      local active = provider.name == current_provider and (nf.active .. " ") or "  "
-      table.insert(lines, string.format("%s%s %s", active, nf.normalize(provider.icon), provider.name))
-    end
+    M._render_providers_cover()
+    return
   else
     local selected
     for _, tab in ipairs(agent_tabs_cache) do
@@ -3785,8 +4698,46 @@ function M.ensure_agent_buf()
   vim.keymap.set("n", "<Tab>", function() cycle_agent_tab(1) end, { buffer = agent_buf, desc = "Next agent tab", nowait = true })
   vim.keymap.set("n", "<S-Tab>", function() cycle_agent_tab(-1) end, { buffer = agent_buf, desc = "Previous agent tab", nowait = true })
   vim.keymap.set("n", "<CR>", function()
-    if selected_agent_tab == "providers" then M.toggle_session() else select_agent_tab(selected_agent_tab) end
-  end, { buffer = agent_buf, desc = "Open selected agent tab / toggle session" })
+    if selected_agent_tab ~= "providers" then
+      select_agent_tab(selected_agent_tab)
+      return
+    end
+    local provider_name = M._provider_rows[vim.api.nvim_win_get_cursor(0)[1]]
+    if provider_name then
+      launch_in_project(provider_name, vim.fn.getcwd())
+    else
+      M.toggle_session()
+    end
+  end, { buffer = agent_buf, desc = "Start provider under cursor / open agent tab" })
+  -- j/k jump between provider rows on the cover
+  for _, spec in ipairs({ { "j", 1 }, { "k", -1 }, { "<Down>", 1 }, { "<Up>", -1 } }) do
+    vim.keymap.set("n", spec[1], function()
+      if selected_agent_tab ~= "providers" then
+        vim.cmd("normal! " .. (spec[2] > 0 and "j" or "k"))
+        return
+      end
+      local rows = vim.tbl_keys(M._provider_rows)
+      table.sort(rows)
+      if #rows == 0 then return end
+      local cur = vim.api.nvim_win_get_cursor(0)
+      local target = spec[2] > 0 and rows[#rows] or rows[1]
+      for i, row in ipairs(rows) do
+        if row == cur[1] then target = rows[math.max(1, math.min(#rows, i + spec[2]))] end
+      end
+      vim.api.nvim_win_set_cursor(0, { target, cur[2] })
+    end, { buffer = agent_buf, nowait = true })
+  end
+  -- Keep the cover centered when the panel resizes
+  vim.api.nvim_create_autocmd("WinResized", {
+    callback = function()
+      if not agent_buf or not vim.api.nvim_buf_is_valid(agent_buf) then return true end
+      local win = vim.fn.bufwinid(agent_buf)
+      if selected_agent_tab == "providers" and win ~= -1
+        and vim.tbl_contains(vim.v.event.windows or {}, win) then
+        render_agent_panel()
+      end
+    end,
+  })
   vim.keymap.set("n", "r", render_agent_panel, { buffer = agent_buf, desc = "Refresh agent panel" })
   install_agent_tab_number_maps(agent_buf, "n")
   vim.keymap.set("n", "<S-p>", M.select_provider, { buffer = agent_buf, desc = "Select provider" })
@@ -3955,7 +4906,7 @@ function M.launch_provider(provider_name, thread_id, project_cwd, force_new, ini
     elseif provider_name == "Kiro" then
       cmd = "kiro-cli chat --resume-id " .. thread_id
     elseif provider_name == "Claude Code" then
-      cmd = "claude --resume"
+      cmd = thread_id == "resume-picker" and "claude --resume" or ("claude --resume " .. thread_id)
     else
       -- Generic fallback: append thread_id to command
       cmd = cmd .. " " .. thread_id
@@ -4275,6 +5226,29 @@ end
 
 -- ─── Public API ─────────────────────────────────────────────────────────────
 
+-- The session prompts should go to right now. Read at send time by
+-- lenn.agent-context so switching agents mid-compose targets the new one.
+-- Works for both direct termopen sessions and toggleterm terminals.
+function M.active_session()
+  local s = current_term
+  if not s then return nil end
+  local bufnr = s.bufnr
+  local b = (bufnr and vim.api.nvim_buf_is_valid(bufnr)) and vim.b[bufnr] or {}
+  return {
+    provider = b.agent_provider or s.provider or current_provider,
+    job = s.job_id or s.job or b.terminal_job_id,
+    bufnr = bufnr,
+    cwd = b.agent_project_cwd or s.cwd or s.dir,
+    thread_id = b.agent_thread_id or s.thread_id,
+  }
+end
+
+-- All saved threads across providers/projects, newest first (async because
+-- OpenCode is read via sqlite3). Entries: { provider, icon, id, cwd, title, updated }
+function M.list_threads(cb)
+  collect_threads(cb)
+end
+
 -- Edgy calls these commands when opening pinned views.
 -- They create the buffers in the current window.
 -- Check if our panels are currently visible
@@ -4287,6 +5261,13 @@ end
 -- restore hidden windows (nvim_win_set_buf does not make hidden windows visible).
 -- Preserves the agent terminal buffer so it can be restored in the new panel.
 hide_panels = function()
+  -- Put real buffers back first so the agent terminal etc. are saved correctly
+  M.restore_all()
+  -- Bring back minimized buffers while the panels still exist to split from
+  if has_hidden_windows() or #minimized_editor_bufs > 0 then
+    restore_editor_buffers()
+  end
+
   -- Save the agent terminal buffer before closing windows
   if agent_win and vim.api.nvim_win_is_valid(agent_win) then
     local buf = vim.api.nvim_win_get_buf(agent_win)
@@ -4645,6 +5626,19 @@ function M.set_mode(mode, opts)
   end
   apply_workspace_mode(mode, opts)
 end
+
+-- Rebuild the current workspace layout from scratch (e.g. after closing panels)
+function M.rebuild()
+  apply_workspace_mode(current_workspace_mode, { force = true })
+end
+
+vim.api.nvim_create_user_command("PanelMinimize", function() M.toggle_minimize() end,
+  { force = true, desc = "Minimize / restore the current window" })
+vim.api.nvim_create_user_command("PanelRestoreAll", function() M.restore_all() end,
+  { force = true, desc = "Restore every minimized window" })
+
+vim.api.nvim_create_user_command("LagentRebuild", function() M.rebuild() end,
+  { force = true, desc = "Rebuild the current agent workspace layout" })
 
 function M.next_mode()
   local mode_keys = { "agent", "edit", "full", "plan" }
