@@ -1,3 +1,10 @@
+<!--
+  "fix: problemas con workspace solucionado, queda pendinte solucionar errores de neotree
+   o cambiar el explorer para crear otro, :)"
+  — Sí, el workspace funciona. No, no usé debug, usé fe y oración.
+    neo-tree, te viene el recuento pronto. 🌙
+-->
+
 <div align="center">
 
 # 🌙 NvMoon
@@ -84,13 +91,17 @@ Switch workspaces with `space w` or cycle through modes with `space w w`. Curren
 - [Git](#git)
 - [Hunks (buffer-local)](#hunks-buffer-local)
 - [Harpoon](#harpoon)
+- [Agent Context](#agent-context)
 - [AI, Codex and Terminal](#ai-codex-and-terminal)
 - [Tasks Panel](#tasks-panel)
 - [Threads Panel](#threads-panel)
 - [Remote (Distant)](#remote-distant)
 - [Debug](#debug)
+- [Start Screen](#start-screen)
 - [Flash](#flash)
 - [UI / Colors](#ui--colors)
+- [Pane Picker](#pane-picker)
+- [Focus Frame](#focus-frame)
 - [Completion](#completion)
 - [Mappings inside neo-tree](#mappings-inside-neo-tree)
 - [Inherited plugin mappings](#inherited-plugin-mappings)
@@ -120,6 +131,7 @@ Switch workspaces with `space w` or cycle through modes with `space w w`. Curren
 | `space t` | Terminal | toggleterm |
 | `space u` | UI | color picker |
 | `space x` | Trouble | diagnostics, symbols, loclist, qflist |
+| `Ctrl-a` | Agent Context | compose prompt with @mentions (in agent terminals) |
 
 ---
 
@@ -129,6 +141,7 @@ Switch workspaces with `space w` or cycle through modes with `space w w`. Curren
 |---------|-------------|------|
 | `space w` | Write file | normal |
 | `space q` | Quit / close window | normal |
+| `space Q` | Quit Neovim with confirmation (lists unsaved files and running agents) | normal |
 | `space ?` | Which Key (all mappings) | normal |
 | `g y` | Copy to system clipboard (`+` register) | normal, visual |
 | `g p` | Paste from system clipboard | normal, visual |
@@ -147,6 +160,9 @@ Switch workspaces with `space w` or cycle through modes with `space w w`. Curren
 | `Alt-Up` `Alt-Down` `Alt-Left` `Alt-Right` | Move between windows without leaving insert | insert |
 | `C-Up` / `C-Down` | Decrease / increase window height | normal |
 | `C-Left` / `C-Right` | Decrease / increase window width | normal |
+| `Alt-m` | Minimize / restore the current workspace panel | normal |
+| `Alt-q` | Pick a window by number (tmux-style overlay) | normal, insert, terminal |
+| `space w q` | Pick a window by number (alias of `Alt-q`) | normal |
 
 ---
 
@@ -210,6 +226,8 @@ Switch workspaces with `space w` or cycle through modes with `space w w`. Curren
 
 neo-tree sits on the **right**, width 30, and follows the current file.
 The top selector has three sources: `Files`, `Buffers`, `Git` (also with `<` / `>`).
+
+The **status line** (lualine) shows clickable icons for each explorer source next to the explorer icon. Click an icon to switch the panel to that source in place, or click the explorer icon to toggle neo-tree.
 
 ---
 
@@ -315,6 +333,57 @@ documents for your project. Select an option and press `<CR>`:
 
 Planner files are stored in `~/requirements/planners/` and include sections for
 project overview, goals, scope, milestones, risks, resources, and timeline.
+
+### Panel minimize / restore
+Press `Alt-m` in any workspace panel (Threads, Skills, Keymaps, Agent, Requirements) to minimize it to a compact bar. Press `Alt-m` again to restore it to full size. Minimized panels free space for the remaining panels, which expand automatically. Closing a panel with `:q` breaks the layout; re-selecting the same workspace mode rebuilds it from scratch.
+
+### Dynamic panel sizing
+Panel widths are computed dynamically based on the available screen space. Each workspace mode defines a column order (e.g. agent mode: Threads → Agent → Explorer); fixed-size panels are set first, and the remaining columns are distributed among the flexible panels.
+
+---
+
+## Agent Context
+
+Inspired by Zed's "add context" popover, Agent Context lets you compose prompts
+with rich context for any active agent. Inside an agent terminal, press `Ctrl-a`
+to open a compose floating window. Type `@` (or press `Ctrl-a` again) to open
+the context picker popover.
+
+### Context providers
+
+| Provider | Description |
+|----------|-------------|
+| **Files & Directories** | Attach files or entire directories as context. |
+| **Symbols** | Pick functions, classes, or other treesitter nodes to include. |
+| **Threads** | Reference a saved agent thread's transcript. |
+| **Image** | Attach an image file for vision-capable models. |
+| **Selection** | Include the current visual selection from the editor. |
+| **Branch Diff** | Attach the current branch diff as context. |
+
+After selecting a context item, it appears as an `@mention` in the compose
+window. Press `Ctrl-s` to send the composed prompt to the active agent.
+
+You can also use the `:AgentCompose` command from normal mode to open the
+compose window for the active agent.
+
+---
+
+## Start Screen
+
+When Neovim opens with no file, instead of an empty buffer you get a centered,
+read-only start screen with quick actions:
+
+| Key | Action |
+|-----|--------|
+| `e` | Open explorer |
+| `f` | Find file |
+| `n` | New file |
+| `r` | Recent files |
+| `p` | Open project |
+
+Press `i` to start writing in a new buffer directly. The menu items are
+highlighted and clickable; the cursor starts on the first item so you can also
+press `<CR>` to activate it.
 
 ---
 
@@ -640,6 +709,21 @@ Useful to know what is "inherited" so you do not break it by accident.
 
 ---
 
+## Pane Picker
+
+Press `Alt-q` (or `space w q`) to show a tmux-style numbered overlay on all
+windows. Press the corresponding number to jump directly to that window. Works
+in normal, insert, and terminal modes.
+
+---
+
+## Focus Frame
+
+A subtle rounded highlight is drawn around the currently focused window, making
+it easy to see where your cursor is at a glance. Toggle with `:FocusFrameToggle`.
+
+---
+
 ## Migration from the old scheme
 
 The `<leader>` namespaces were reorganized so that every prefix has exactly one
@@ -681,7 +765,24 @@ lua/lenn/
 │   └── keymaps.lua     # global + LSP mappings
 ├── agent-workspace.lua # workspace modes, agent panel, planner
 ├── requirements-panel.lua # requirements panel with tabs
+├── start-screen.lua    # start screen for empty buffers
+├── pane-picker.lua     # tmux-style window picker
+├── focus-frame.lua     # focused-window highlight frame
+├── explorer.lua        # neo-tree helpers (sources, highlights, lualine)
 ├── icons.lua           # Nerd Font icon definitions
+├── agent-context/      # Zed-style context picker for agents
+│   ├── init.lua        # popover, category list, setup
+│   ├── compose.lua     # compose float with @mentions
+│   ├── popover.lua     # category selection popover
+│   ├── resolve.lua     # mention resolution
+│   ├── transcripts.lua # thread transcript handling
+│   └── providers/      # context providers
+│       ├── files.lua
+│       ├── symbols.lua
+│       ├── threads.lua
+│       ├── image.lua
+│       ├── selection.lua
+│       └── branch_diff.lua
 └── plugins/
     ├── init.lua        # plugin registration
     ├── neotree.lua  bufferline.lua  lualine.lua  snacks.lua
